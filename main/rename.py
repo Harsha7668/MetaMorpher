@@ -653,10 +653,12 @@ async def rename_file(bot, msg):
     await sts.delete()"""
 
 
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import os
-import time
+import hashlib
+
+def generate_callback_data(upload_method, new_name):
+    # Create a short unique identifier for the new_name
+    short_name = hashlib.md5(new_name.encode()).hexdigest()[:8]  # First 8 characters of the hash
+    return f"{upload_method}:{short_name}"
 
 @Client.on_message(filters.command("rename") & filters.chat(GROUP))
 async def rename_file(bot, msg):
@@ -671,12 +673,12 @@ async def rename_file(bot, msg):
     new_name = msg.text.split(" ", 1)[1]
     sts = await msg.reply_text("🚀 Preparing options... ⚡")
 
-    # Inline keyboard for upload options
+    # Inline keyboard for upload options with shortened callback data
     keyboard = [
         [
-            InlineKeyboardButton("Upload to Telegram", callback_data=f"upload_telegram:{new_name}"),
-            InlineKeyboardButton("Upload to Google Drive", callback_data=f"upload_gdrive:{new_name}"),
-            InlineKeyboardButton("Upload to Gofile", callback_data=f"upload_gofile:{new_name}")
+            InlineKeyboardButton("Upload to Telegram", callback_data=generate_callback_data("upload_telegram", new_name)),
+            InlineKeyboardButton("Upload to Google Drive", callback_data=generate_callback_data("upload_gdrive", new_name)),
+            InlineKeyboardButton("Upload to Gofile", callback_data=generate_callback_data("upload_gofile", new_name))
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -688,7 +690,11 @@ async def handle_upload_selection(bot, callback_query):
     user_id = callback_query.from_user.id
     data = callback_query.data.split(":")
     upload_method = data[0]
-    new_name = data[1]
+    short_name = data[1]
+
+    # Retrieve the actual new_name from the database or mapping
+    # Here, we're using the short_name to find the actual name, you need to implement this part
+    new_name = await get_original_name(short_name)
 
     reply = await callback_query.message.reply_to_message
     media = reply.document or reply.audio or reply.video
@@ -760,6 +766,10 @@ async def handle_upload_selection(bot, callback_query):
 
     os.remove(downloaded)
     await sts.delete()
+
+async def get_original_name(short_name):
+    # Implement a way to retrieve the original name using the short_name
+    pass
 
 #Change Metadata Code
 @Client.on_message(filters.command("changemetadata") & filters.chat(GROUP))
