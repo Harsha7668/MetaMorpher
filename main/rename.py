@@ -2689,9 +2689,6 @@ def compress_video(input_path, output_path):
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
 """
 
-
-import re
-
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
@@ -2727,8 +2724,7 @@ async def compress_media(bot, msg: Message):
 
     output_file = output_filename
 
-    await bot.edit_message_text(chat_id=sts.chat.id, message_id=sts.id, text="💠 Compressing media... ⚡")
-    await bot.edit_message_reply_markup(chat_id=sts.chat.id, message_id=sts.id, reply_markup=progress_markup)
+    await safe_edit_message(sts, "💠 Compressing media... ⚡", reply_markup=progress_markup)
 
     try:
         await compress_video(downloaded, output_file, sts, bot, user_id)
@@ -2797,42 +2793,49 @@ async def compress_video(input_path, output_path, sts, bot, user_id):
         output_path,
         '-y'
     ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    start_time = time.time()
-    last_update_time = start_time
-    last_message_content = ""
+
+    process = await asyncio.create_subprocess_exec(*command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     while True:
-        output = process.stderr.readline()
-        if output == '' and process.poll() is not None:
+        output = await process.stderr.readline()
+        if output == b'' and process.poll() is not None:
             break
-        if output:
-            current_time = time.time()
-            if current_time - last_update_time >= 10:  # Update every 10 seconds
-                progress, eta = get_progress(output, start_time)
-                elapsed_time = current_time - start_time
-                progress_bar = generate_progress_bar(progress)
-                new_message_content = (
-                    f"💠 Compressing media... ⚡\n[{progress_bar}] {progress}%\n"
-                    f"Elapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds"
-                )
-                if new_message_content != last_message_content:
-                    await bot.edit_message_text(
-                        chat_id=sts.chat.id,
-                        message_id=sts.id,
-                        text=new_message_content,
-                        reply_markup=InlineKeyboardMarkup(
-                            [
-                                [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
-                            ]
-                        )
-                    )
-                    last_message_content = new_message_content
-                last_update_time = current_time
 
-    stderr = process.communicate()[1]
+        if output:
+            progress = parse_ffmpeg_progress(output)
+            if progress:
+                progress_text = f"💠 Compressing media... ⚡\n{progress['progress']}\nElapsed time: {progress['elapsed_time']}\nETA: {progress['eta']}"
+                await safe_edit_message(sts, progress_text)
+
+    stdout, stderr = await process.communicate()
     if process.returncode != 0:
-        raise Exception(f"FFmpeg error: {stderr}")
+        raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
+
+import re
+import time
+
+def parse_ffmpeg_progress(output):
+    progress = {}
+    output_str = output.decode('utf-8')
+
+    # Regular expressions to match relevant information
+    time_pattern = re.compile(r"time=(\d+:\d+:\d+\.\d+)")
+    speed_pattern = re.compile(r"speed=\s*(\d+\.?\d*)x")
+
+    # Find matches
+    time_match = time_pattern.search(output_str)
+    speed_match = speed_pattern.search(output_str)
+
+    if time_match and speed_match:
+        elapsed_time = time_match.group(1)
+        speed = float(speed_match.group(1))
+
+        # Estimate ETA (assuming the duration is known and constant)
+        progress['elapsed_time'] = elapsed_time
+        progress['eta'] = "N/A"  # Calculate ETA based on your logic
+        progress['progress'] = "[...•••...]"  # Update this based on your logic
+
+    return progress
 
 def get_progress(ffmpeg_output, start_time):
     duration = None
@@ -2877,7 +2880,6 @@ async def safe_edit_message(message, text, reply_markup=None):
         pass  # Ignore this error as it means the message content was the same
     except Exception as e:
         print(f"Failed to edit message: {e}")
-        
 
 
 
