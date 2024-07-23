@@ -2690,6 +2690,8 @@ def compress_video(input_path, output_path):
 """
 
 
+
+
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
@@ -2722,7 +2724,7 @@ async def compress_media(bot, msg: Message):
 
     await safe_edit_message(sts, "💠 Compressing media... ⚡")
     try:
-        await compress_video(downloaded, output_file, sts, bot)
+        await compress_video(bot, downloaded, output_file, sts)
     except Exception as e:
         await safe_edit_message(sts, f"Error compressing media: {e}")
         os.remove(downloaded)
@@ -2774,7 +2776,7 @@ async def compress_media(bot, msg: Message):
     await sts.delete()
 
 
-async def compress_video(input_path, output_path, sts, bot):
+async def compress_video(bot, input_path, output_path, sts):
     command = [
         'ffmpeg',
         '-i', input_path,
@@ -2790,8 +2792,17 @@ async def compress_video(input_path, output_path, sts, bot):
         '-y'
     ]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    
+
     total_size = os.path.getsize(input_path)
+    start_time = time.time()
+
+    def progress_buttons(progress_percent, elapsed_time, eta):
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"Progress: {progress_percent:.2f}%", callback_data="progress"),
+            InlineKeyboardButton(f"Elapsed: {elapsed_time:.2f}s", callback_data="elapsed"),
+            InlineKeyboardButton(f"ETA: {eta:.2f}s", callback_data="eta")
+        ]])
+
     last_update_time = time.time()
 
     while True:
@@ -2804,13 +2815,15 @@ async def compress_video(input_path, output_path, sts, bot):
                 if os.path.exists(output_path):
                     current_size = os.path.getsize(output_path)
                     progress_percent = (current_size / total_size) * 100
-                    await safe_edit_message(sts, f"💠 Compressing media... ⚡\nProgress: {progress_percent:.2f}%")
+                    elapsed_time = time.time() - start_time
+                    eta = elapsed_time * (100 / progress_percent) - elapsed_time if progress_percent > 0 else 0
+                    buttons = progress_buttons(progress_percent, elapsed_time, eta)
+                    await bot.edit_message_reply_markup(sts.chat.id, sts.message_id, reply_markup=buttons)
                 last_update_time = time.time()
 
     stdout, stderr = process.communicate()
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
-
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
