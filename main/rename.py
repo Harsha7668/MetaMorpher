@@ -685,6 +685,7 @@ async def rename_file(bot, msg):
 
     await sts.edit_text("Please choose where to upload the file:", reply_markup=reply_markup)
 
+
 @Client.on_callback_query(filters.regex(r"upload_(telegram|gdrive|gofile):"))
 async def handle_upload_selection(bot, callback_query):
     user_id = callback_query.from_user.id
@@ -694,16 +695,28 @@ async def handle_upload_selection(bot, callback_query):
 
     # Access the reply_to_message directly
     reply = callback_query.message.reply_to_message
+
     if not reply:
         return await callback_query.message.reply_text("No message to reply to.")
+
+    # Log debug information about the reply
+    reply_info = (
+        f"Reply ID: {reply.message_id}\n"
+        f"Reply Type: {'Document' if reply.document else 'Audio' if reply.audio else 'Video' if reply.video else 'None'}\n"
+        f"Document: {reply.document}\n"
+        f"Audio: {reply.audio}\n"
+        f"Video: {reply.video}"
+    )
+    print(reply_info)  # For debugging purposes
 
     media = reply.document or reply.audio or reply.video
     if not media:
         return await callback_query.message.reply_text("The replied message is not a file, video, or audio.")
 
     # Retrieve the actual new_name from the database or mapping
-    # Here, we're using the short_name to find the actual name, you need to implement this part
     new_name = await get_original_name(short_name)
+    if not new_name:
+        return await callback_query.message.reply_text("Unable to retrieve the file name.")
 
     sts = await callback_query.message.reply_text("🚀 Processing... ⚡")
     c_time = time.time()
@@ -776,7 +789,7 @@ async def handle_upload_selection(bot, callback_query):
 async def get_original_name(short_name):
     # Implement a way to retrieve the original name using the short_name
     pass
-
+    
 #Change Metadata Code
 @Client.on_message(filters.command("changemetadata") & filters.chat(GROUP))
 async def change_metadata(bot, msg: Message):
