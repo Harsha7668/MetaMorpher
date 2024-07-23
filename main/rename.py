@@ -2690,8 +2690,6 @@ def compress_video(input_path, output_path):
 """
 
 
-
-
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
@@ -2712,7 +2710,12 @@ async def compress_media(bot, msg: Message):
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the compress command.")
 
-    sts = await msg.reply_text("🚀 Downloading media... ⚡")
+    progress_markup = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
+        ]
+    )
+    sts = await msg.reply_text("🚀 Downloading media... ⚡", reply_markup=progress_markup)
     c_time = time.time()
     try:
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
@@ -2722,9 +2725,9 @@ async def compress_media(bot, msg: Message):
 
     output_file = output_filename
 
-    await safe_edit_message(sts, "💠 Compressing media... ⚡")
+    await safe_edit_message(sts, "💠 Compressing media... ⚡", reply_markup=progress_markup)
     try:
-        await compress_video(bot, downloaded, output_file, sts)
+        await compress_video(downloaded, output_file, sts, bot, user_id)
     except Exception as e:
         await safe_edit_message(sts, f"Error compressing media: {e}")
         os.remove(downloaded)
@@ -2775,8 +2778,7 @@ async def compress_media(bot, msg: Message):
         os.remove(file_thumb)
     await sts.delete()
 
-
-async def compress_video(bot, input_path, output_path, sts):
+async def compress_video(input_path, output_path, sts, bot, user_id):
     command = [
         'ffmpeg',
         '-i', input_path,
@@ -2791,39 +2793,54 @@ async def compress_video(bot, input_path, output_path, sts):
         output_path,
         '-y'
     ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    total_size = os.path.getsize(input_path)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     start_time = time.time()
 
-    def progress_buttons(progress_percent, elapsed_time, eta):
-        return InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"Progress: {progress_percent:.2f}%", callback_data="progress"),
-            InlineKeyboardButton(f"Elapsed: {elapsed_time:.2f}s", callback_data="elapsed"),
-            InlineKeyboardButton(f"ETA: {eta:.2f}s", callback_data="eta")
-        ]])
-
-    last_update_time = time.time()
-
     while True:
-        output = process.stdout.readline()
-        if process.poll() is not None and not output:
+        output = process.stderr.readline()
+        if output == '' and process.poll() is not None:
             break
         if output:
-            # Update progress every 5 seconds
-            if time.time() - last_update_time >= 5:
-                if os.path.exists(output_path):
-                    current_size = os.path.getsize(output_path)
-                    progress_percent = (current_size / total_size) * 100
-                    elapsed_time = time.time() - start_time
-                    eta = elapsed_time * (100 / progress_percent) - elapsed_time if progress_percent > 0 else 0
-                    buttons = progress_buttons(progress_percent, elapsed_time, eta)
-                    await bot.edit_message_reply_markup(sts.chat.id, sts.message_id, reply_markup=buttons)
-                last_update_time = time.time()
+            progress, eta = get_progress(output, start_time)
+            elapsed_time = time.time() - start_time
+            await bot.edit_message_text(
+                chat_id=sts.chat.id,
+                message_id=sts.message_id,
+                text=f"💠 Compressing media... ⚡\n[{'•' * progress}{' ' * (100 - progress)}] {progress}%\nElapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
+                    ]
+                )
+            )
 
-    stdout, stderr = process.communicate()
+    stderr = process.communicate()[1]
     if process.returncode != 0:
-        raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
+        raise Exception(f"FFmpeg error: {stderr}")
+
+def get_progress(ffmpeg_output, start_time):
+    duration = None
+    time_pattern = r"time=\s*(\d+:\d+:\d+\.\d+)"
+    duration_pattern = r"Duration:\s*(\d+:\d+:\d+\.\d+)"
+
+    if match := re.search(duration_pattern, ffmpeg_output):
+        duration = match.group(1)
+
+    if match := re.search(time_pattern, ffmpeg_output):
+        current_time = match.group(1)
+        if duration:
+            duration_seconds = convert_time_to_seconds(duration)
+            current_seconds = convert_time_to_seconds(current_time)
+            progress = int((current_seconds / duration_seconds) * 100)
+            eta = duration_seconds - current_seconds
+            return progress, eta
+    return 0, 0
+
+def convert_time_to_seconds(time_str):
+    h, m, s = map(float, time_str.split(':'))
+    return int(h * 3600 + m * 60 + s)
+
+
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
