@@ -15,6 +15,17 @@ class Database:
         self.banned_col = self.db["banned_users"]
         self.user_quality_selection_col = self.db['user_quality_selection']
         self.file_data_col = self.db['file_data']
+
+
+    async def get_user_settings(user_id):
+        settings = await db.get_user_settings(user_id)
+        return settings.get('upload_method', 'telegram')
+    
+
+    async def set_user_settings(user_id, settings):
+        await db.set_user_settings(user_id, settings)
+    
+
         
     async def add_user(self, user_id: int, username: str):
         try:
