@@ -2933,7 +2933,6 @@ async def safe_edit_message(message, new_text, reply_markup=None):
         print(f"Failed to edit message: {e}")
 
 
-
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg):
     user_id = msg.from_user.id
@@ -3016,6 +3015,7 @@ async def compress_media(bot, msg):
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
+
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
