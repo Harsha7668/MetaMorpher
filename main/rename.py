@@ -2861,7 +2861,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 # Your other function definitions remain the same
 
-async def compress_video(input_path, output_path, sts, bot, user_id):
+async def compress_video(input_file: str, output_file: str, sts, bot, user_id):
     command = [
         'ffmpeg',
         '-i', input_path,
@@ -2966,7 +2966,7 @@ async def compress_media(bot, msg):
 
     await safe_edit_message(sts, "💠 Compressing media... ⚡")
     try:
-        compress_video(downloaded, output_file)
+        await compress_video(downloaded, output_file, sts, bot, user_id)
     except Exception as e:
         await safe_edit_message(sts, f"Error compressing media: {e}")
         os.remove(downloaded)
@@ -3009,13 +3009,10 @@ async def compress_media(bot, msg):
         else:
             await bot.send_document(msg.chat.id, document=output_file, thumb=file_thumb, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
     except Exception as e:
-        await safe_edit_message(sts, f"Error uploading file: {e}")
+        return await safe_edit_message(sts, f"Error: {e}")
 
-    # Clean up files
-    if os.path.exists(downloaded):
-        os.remove(downloaded)
-    if os.path.exists(output_file):
-        os.remove(output_file)
+    os.remove(downloaded)
+    os.remove(output_file)
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
