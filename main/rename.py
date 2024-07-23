@@ -2940,6 +2940,8 @@ async def compress_media(bot, msg: Message):
         os.remove(file_thumb)
     await sts.delete()
     
+
+
 import re
 import asyncio
 
@@ -2996,29 +2998,22 @@ def extract_progress(buffer):
         eta = int((100 - progress) / speed)  # Example calculation, adjust as needed
 
         return {
-            "progress": f"[{'◻' * (progress // 5)}{'◼' * (20 - progress // 5)}] {progress}%",
+            "progress": f"[{'•' * (progress // 5)}{'°' * (20 - progress // 5)}] {progress}%",
             "elapsed_time": elapsed_time,
             "eta": f"{eta} seconds"
         }
     return None
 
 
-
-
 async def safe_edit_message(message, text, reply_markup=None):
     try:
-        if message.text != text:  # Check if the content has changed
-            await message.edit_text(text=text, reply_markup=reply_markup)
+        await message.edit_text(text=text, reply_markup=reply_markup)
     except FloodWait as e:
-        await asyncio.sleep(e.x)  # Wait for the required time before retrying
-        if message.text != text:  # Check again before retrying
-            await message.edit_text(text=text, reply_markup=reply_markup)
-    except MessageNotModified:
-        pass  # Ignore this error as it means the message content was the same
-    except Exception as e:
+        print(f"[MetaMorpher] Waiting for {e.value} seconds before continuing (required by \"messages.EditMessage\")")
+        await asyncio.sleep(e.value)  # Wait for the required time before retrying
+        await safe_edit_message(message, text, reply_markup)  # Retry the edit
+    except RPCError as e:
         print(f"Failed to edit message: {e}")
-
-
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
