@@ -2691,6 +2691,14 @@ def compress_video(input_path, output_path):
 
 
 import re
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+import os
+import time
+import subprocess
+import re
+from your_database_module import db  # replace with your actual database module
+from your_utils_module import safe_edit_message, progress_message, humanbytes, upload_to_google_drive  # replace with your actual utility functions
 
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
@@ -2800,6 +2808,7 @@ async def compress_video(input_path, output_path, sts, bot, user_id):
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     start_time = time.time()
     last_update_time = start_time
+    last_message_content = ""
 
     while True:
         output = process.stderr.readline()
@@ -2811,16 +2820,22 @@ async def compress_video(input_path, output_path, sts, bot, user_id):
                 progress, eta = get_progress(output, start_time)
                 elapsed_time = current_time - start_time
                 progress_bar = generate_progress_bar(progress)
-                await bot.edit_message_text(
-                    chat_id=sts.chat.id,
-                    message_id=sts.id,
-                    text=f"💠 Compressing media... ⚡\n[{progress_bar}] {progress}%\nElapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds",
-                    reply_markup=InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
-                        ]
-                    )
+                new_message_content = (
+                    f"💠 Compressing media... ⚡\n[{progress_bar}] {progress}%\n"
+                    f"Elapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds"
                 )
+                if new_message_content != last_message_content:
+                    await bot.edit_message_text(
+                        chat_id=sts.chat.id,
+                        message_id=sts.id,
+                        text=new_message_content,
+                        reply_markup=InlineKeyboardMarkup(
+                            [
+                                [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
+                            ]
+                        )
+                    )
+                    last_message_content = new_message_content
                 last_update_time = current_time
 
     stderr = process.communicate()[1]
@@ -2852,9 +2867,25 @@ def convert_time_to_seconds(time_str):
 def generate_progress_bar(progress):
     bar_length = 40  # Adjust the length as needed
     filled_length = int(bar_length * progress // 100)
-    bar = '◼' * filled_length + '◻' * (bar_length - filled_length)
+    bar = '◻' * filled_length + '◼' * (bar_length - filled_length)
     return bar
 
+
+
+
+async def safe_edit_message(message, text, reply_markup=None):
+    try:
+        if message.text != text:  # Check if the content has changed
+            await message.edit_text(text=text, reply_markup=reply_markup)
+    except FloodWait as e:
+        await asyncio.sleep(e.x)  # Wait for the required time before retrying
+        if message.text != text:  # Check again before retrying
+            await message.edit_text(text=text, reply_markup=reply_markup)
+    except MessageNotModified:
+        pass  # Ignore this error as it means the message content was the same
+    except Exception as e:
+        print(f"Failed to edit message: {e}")
+        
 
 
 
