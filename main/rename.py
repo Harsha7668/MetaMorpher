@@ -2725,7 +2725,9 @@ async def compress_media(bot, msg: Message):
 
     output_file = output_filename
 
-    await safe_edit_message(sts, "💠 Compressing media... ⚡", reply_markup=progress_markup)
+    await bot.edit_message_text(chat_id=sts.chat.id, message_id=sts.message_id, text="💠 Compressing media... ⚡")
+    await bot.edit_message_reply_markup(chat_id=sts.chat.id, message_id=sts.message_id, reply_markup=progress_markup)
+
     try:
         await compress_video(downloaded, output_file, sts, bot, user_id)
     except Exception as e:
