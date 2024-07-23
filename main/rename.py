@@ -692,12 +692,18 @@ async def handle_upload_selection(bot, callback_query):
     upload_method = data[0]
     short_name = data[1]
 
+    # Access the reply_to_message directly
+    reply = callback_query.message.reply_to_message
+    if not reply:
+        return await callback_query.message.reply_text("No message to reply to.")
+
+    media = reply.document or reply.audio or reply.video
+    if not media:
+        return await callback_query.message.reply_text("The replied message is not a file, video, or audio.")
+
     # Retrieve the actual new_name from the database or mapping
     # Here, we're using the short_name to find the actual name, you need to implement this part
     new_name = await get_original_name(short_name)
-
-    reply = await callback_query.message.reply_to_message
-    media = reply.document or reply.audio or reply.video
 
     sts = await callback_query.message.reply_text("🚀 Processing... ⚡")
     c_time = time.time()
