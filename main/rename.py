@@ -2851,17 +2851,12 @@ def compress_video(input_path, output_path):
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
 """
 
-import asyncio
 import re
-import os
-import time
-from pyrogram import Client, filters
-from pyrogram.errors import FloodWait, RPCError
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+import subprocess
+import math
 
-# Your other function definitions remain the same
 
-async def compress_video(input_file: str, output_file: str, sts, bot, user_id):
+def compress_video(input_path, output_path, progress_callback=None):
     command = [
         'ffmpeg',
         '-i', input_path,
@@ -2873,68 +2868,29 @@ async def compress_video(input_file: str, output_file: str, sts, bot, user_id):
         '-map', '0:a',
         '-c:s', 'copy',
         '-map', '0:s?',
-        output_path,
-        '-y'
+        '-progress', 'pipe:1',
+        '-y',
+        output_path
     ]
-
-    process = await asyncio.create_subprocess_exec(*command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    buffer = ""
-
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    
     while True:
-        output = await process.stderr.read(1024)
-        if not output:
+        line = process.stdout.readline()
+        if not line:
             break
-        buffer += output.decode("utf-8")
         
-        # Process the buffer to extract progress information
-        progress_info = extract_progress(buffer)
-        if progress_info:
-            progress_text = f"💠 Compressing media... ⚡\n{progress_info['progress']}\nElapsed time: {progress_info['elapsed_time']}\nETA: {progress_info['eta']}"
-            await safe_edit_message(sts, progress_text)
+        if "out_time_ms=" in line:
+            match = re.search(r'out_time_ms=(\d+)', line)
+            if match:
+                time_ms = int(match.group(1))
+                if progress_callback:
+                    progress_callback(time_ms)
 
-    stdout, stderr = await process.communicate()
+    stdout, stderr = process.communicate()
     if process.returncode != 0:
-        raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
+        raise Exception(f"FFmpeg error: {stderr}")
 
-def extract_progress(buffer):
-    # Regular expressions to match relevant information
-    time_pattern = re.compile(r"time=(\d+:\d+:\d+\.\d+)")
-    speed_pattern = re.compile(r"speed=\s*(\d+\.?\d*)x")
-
-    # Find matches
-    time_match = time_pattern.search(buffer)
-    speed_match = speed_pattern.search(buffer)
-
-    if time_match and speed_match:
-        elapsed_time = time_match.group(1)
-        speed = float(speed_match.group(1))
-
-        # Calculate progress and ETA based on known total duration
-        progress = int((speed * 100)) % 100  # Example calculation, adjust as needed
-        eta = int((100 - progress) / speed)  # Example calculation, adjust as needed
-
-        return {
-            "progress": f"[{'•' * (progress // 5)}{'°' * (20 - progress // 5)}] {progress}%",
-            "elapsed_time": elapsed_time,
-            "eta": f"{eta} seconds"
-        }
-    return None
-
-async def safe_edit_message(message, new_text, reply_markup=None):
-    try:
-        # Check if the new text is different from the current text
-        if message.text != new_text:
-            await message.edit_text(text=new_text, reply_markup=reply_markup)
-    except FloodWait as e:
-        print(f"[MetaMorpher] Waiting for {e.value} seconds before continuing (required by \"messages.EditMessage\")")
-        await asyncio.sleep(e.value)  # Wait for the required time before retrying
-        await safe_edit_message(message, new_text, reply_markup)  # Retry the edit
-    except RPCError as e:
-        print(f"Failed to edit message: {e}")
-
-
-@Client.on_message(filters.command("compress") & filters.chat(GROUP))
-async def compress_media(bot, msg):
+async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
 
     reply = msg.reply_to_message
@@ -2963,9 +2919,21 @@ async def compress_media(bot, msg):
 
     output_file = output_filename
 
+    async def compress_progress_callback(time_ms):
+        # Assuming you have a way to get the total duration of the video
+        # This is just a placeholder and needs to be replaced with actual duration handling
+        total_duration_ms = 10000000  # Replace with actual total duration in ms
+
+        percentage = min(time_ms / total_duration_ms * 100, 100)
+        progress_bar = ''.join(["■" for _ in range(math.floor(percentage / 5))]) + \
+                       ''.join(["□" for _ in range(20 - math.floor(percentage / 5))])
+        progress_text = f"{progress_bar}\nProgress: {round(percentage, 2)}%\n{humanbytes(time_ms)} of {humanbytes(total_duration_ms)}\nSpeed: {humanbytes(time_ms / (time.time() - c_time))}/s\nETA: {TimeFormatter((total_duration_ms - time_ms)) if percentage < 100 else '0 s'}"
+
+        await safe_edit_message(sts, f"💠 Compressing in progress... ⚡\n\n{progress_text}")
+
     await safe_edit_message(sts, "💠 Compressing media... ⚡")
     try:
-        await compress_video(downloaded, output_file, sts, bot, user_id)
+        compress_video(downloaded, output_file, progress_callback=compress_progress_callback)
     except Exception as e:
         await safe_edit_message(sts, f"Error compressing media: {e}")
         os.remove(downloaded)
@@ -2978,12 +2946,12 @@ async def compress_media(bot, msg):
         try:
             file_thumb = await bot.download_media(thumbnail_file_id)
         except Exception:
-            file_thumb = None
+            pass
     else:
         if hasattr(media, 'thumbs') and media.thumbs:
             try:
                 file_thumb = await bot.download_media(media.thumbs[0].file_id)
-            except Exception:
+            except Exception as e:
                 file_thumb = None
 
     filesize = os.path.getsize(output_file)
@@ -2993,22 +2961,22 @@ async def compress_media(bot, msg):
     await safe_edit_message(sts, "💠 Uploading... ⚡")
     c_time = time.time()
 
-    try:
-        if filesize > FILE_SIZE_LIMIT:
-            file_link = await upload_to_google_drive(output_file, output_filename, sts)
-            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
-            await msg.reply_text(
-                f"**File successfully compressed and uploaded to Google Drive!**\n\n"
-                f"**Google Drive Link**: [View File]({file_link})\n\n"
-                f"**Uploaded File**: {output_filename}\n"
-                f"**Request User:** {msg.from_user.mention}\n\n"
-                f"**Size**: {filesize_human}",
-                reply_markup=InlineKeyboardMarkup(button)
-            )
-        else:
+    if filesize > FILE_SIZE_LIMIT:
+        file_link = await upload_to_google_drive(output_file, output_filename, sts)
+        button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+        await msg.reply_text(
+            f"**File successfully compressed and uploaded to Google Drive!**\n\n"
+            f"**Google Drive Link**: [View File]({file_link})\n\n"
+            f"**Uploaded File**: {output_filename}\n"
+            f"**Request User:** {msg.from_user.mention}\n\n"
+            f"**Size**: {filesize_human}",
+            reply_markup=InlineKeyboardMarkup(button)
+        )
+    else:
+        try:
             await bot.send_document(msg.chat.id, document=output_file, thumb=file_thumb, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
-    except Exception as e:
-        return await safe_edit_message(sts, f"Error: {e}")
+        except Exception as e:
+            return await safe_edit_message(sts, f"Error: {e}")
 
     os.remove(downloaded)
     os.remove(output_file)
