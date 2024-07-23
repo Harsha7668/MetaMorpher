@@ -596,6 +596,7 @@ async def mirror_to_google_drive(bot, msg: Message):
         await sts.edit(f"Error: {e}")
         
 
+"""
 #Rename Command
 @Client.on_message(filters.command("rename") & filters.chat(GROUP))
 async def rename_file(bot, msg):
@@ -647,6 +648,115 @@ async def rename_file(bot, msg):
             await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
         except Exception as e:
             return await sts.edit(f"Error: {e}")
+
+    os.remove(downloaded)
+    await sts.delete()"""
+
+
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import os
+import time
+
+@Client.on_message(filters.command("rename") & filters.chat(GROUP))
+async def rename_file(bot, msg):
+    if len(msg.command) < 2 or not msg.reply_to_message:
+        return await msg.reply_text("Please reply to a file, video, or audio with the new filename and extension (e.g., .mkv, .mp4, .zip).")
+
+    reply = msg.reply_to_message
+    media = reply.document or reply.audio or reply.video
+    if not media:
+        return await msg.reply_text("Please reply to a file, video, or audio with the new filename and extension (e.g., .mkv, .mp4, .zip).")
+
+    new_name = msg.text.split(" ", 1)[1]
+    sts = await msg.reply_text("🚀 Preparing options... ⚡")
+
+    # Inline keyboard for upload options
+    keyboard = [
+        [
+            InlineKeyboardButton("Upload to Telegram", callback_data=f"upload_telegram:{new_name}"),
+            InlineKeyboardButton("Upload to Google Drive", callback_data=f"upload_gdrive:{new_name}"),
+            InlineKeyboardButton("Upload to Gofile", callback_data=f"upload_gofile:{new_name}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await sts.edit_text("Please choose where to upload the file:", reply_markup=reply_markup)
+
+@Client.on_callback_query(filters.regex(r"upload_(telegram|gdrive|gofile):"))
+async def handle_upload_selection(bot, callback_query):
+    user_id = callback_query.from_user.id
+    data = callback_query.data.split(":")
+    upload_method = data[0]
+    new_name = data[1]
+
+    reply = await callback_query.message.reply_to_message
+    media = reply.document or reply.audio or reply.video
+
+    sts = await callback_query.message.reply_text("🚀 Processing... ⚡")
+    c_time = time.time()
+    downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+    filesize = humanbytes(media.file_size)
+
+    if upload_method == "upload_telegram":
+        # Handle Telegram upload
+        cap = f"{new_name}\n\n🌟 Size: {filesize}"
+        og_thumbnail = None
+        
+        if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
+            # Upload to Google Drive if file size exceeds limit
+            file_link = await upload_to_google_drive(downloaded, new_name, sts)
+            await callback_query.message.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+        else:
+            try:
+                await bot.send_document(callback_query.message.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+            except Exception as e:
+                await sts.edit_text(f"Error: {e}")
+
+    elif upload_method == "upload_gdrive":
+        # Handle Google Drive upload
+        file_link = await upload_to_google_drive(downloaded, new_name, sts)
+        await callback_query.message.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+
+    elif upload_method == "upload_gofile":
+        # Retrieve Gofile API key from database
+        gofile_api_key = await db.get_gofile_api_key(user_id)
+        if not gofile_api_key:
+            await sts.edit_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
+            os.remove(downloaded)
+            return
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                # Get the server to upload the file
+                async with session.get("https://api.gofile.io/getServer") as resp:
+                    if resp.status != 200:
+                        return await sts.edit_text(f"Failed to get server. Status code: {resp.status}")
+
+                    data = await resp.json()
+                    server = data["data"]["server"]
+
+                # Upload the file to Gofile
+                with open(downloaded, "rb") as file:
+                    form_data = aiohttp.FormData()
+                    form_data.add_field("file", file, filename=new_name)
+                    form_data.add_field("token", gofile_api_key)
+
+                    async with session.post(
+                        f"https://{server}.gofile.io/uploadFile",
+                        data=form_data
+                    ) as resp:
+                        if resp.status != 200:
+                            return await sts.edit_text(f"Upload failed: Status code {resp.status}")
+
+                        response = await resp.json()
+                        if response["status"] == "ok":
+                            download_url = response["data"]["downloadPage"]
+                            await sts.edit_text(f"Upload successful!\nDownload link: {download_url}")
+                        else:
+                            await sts.edit_text(f"Upload failed: {response['message']}")
+            except Exception as e:
+                await sts.edit_text(f"Error during upload: {e}")
 
     os.remove(downloaded)
     await sts.delete()
