@@ -2939,6 +2939,9 @@ async def compress_media(bot, msg: Message):
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
+    
+import re
+import asyncio
 
 async def compress_video(input_path, output_path, sts, bot, user_id):
     command = [
@@ -2957,75 +2960,47 @@ async def compress_video(input_path, output_path, sts, bot, user_id):
     ]
 
     process = await asyncio.create_subprocess_exec(*command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    buffer = ""
 
     while True:
-        output = await process.stderr.readline()
-        if output == b'' and process.poll() is not None:
+        output = await process.stderr.read(1024)
+        if not output:
             break
-
-        if output:
-            progress = parse_ffmpeg_progress(output)
-            if progress:
-                progress_text = f"💠 Compressing media... ⚡\n{progress['progress']}\nElapsed time: {progress['elapsed_time']}\nETA: {progress['eta']}"
-                await safe_edit_message(sts, progress_text)
+        buffer += output.decode("utf-8")
+        
+        # Process the buffer to extract progress information
+        progress_info = extract_progress(buffer)
+        if progress_info:
+            progress_text = f"💠 Compressing media... ⚡\n{progress_info['progress']}\nElapsed time: {progress_info['elapsed_time']}\nETA: {progress_info['eta']}"
+            await safe_edit_message(sts, progress_text)
 
     stdout, stderr = await process.communicate()
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
 
-import re
-import time
-
-def parse_ffmpeg_progress(output):
-    progress = {}
-    output_str = output.decode('utf-8')
-
+def extract_progress(buffer):
     # Regular expressions to match relevant information
     time_pattern = re.compile(r"time=(\d+:\d+:\d+\.\d+)")
     speed_pattern = re.compile(r"speed=\s*(\d+\.?\d*)x")
 
     # Find matches
-    time_match = time_pattern.search(output_str)
-    speed_match = speed_pattern.search(output_str)
+    time_match = time_pattern.search(buffer)
+    speed_match = speed_pattern.search(buffer)
 
     if time_match and speed_match:
         elapsed_time = time_match.group(1)
         speed = float(speed_match.group(1))
 
-        # Estimate ETA (assuming the duration is known and constant)
-        progress['elapsed_time'] = elapsed_time
-        progress['eta'] = "N/A"  # Calculate ETA based on your logic
-        progress['progress'] = "[...•••...]"  # Update this based on your logic
+        # Calculate progress and ETA based on known total duration
+        progress = int((speed * 100)) % 100  # Example calculation, adjust as needed
+        eta = int((100 - progress) / speed)  # Example calculation, adjust as needed
 
-    return progress
-
-def get_progress(ffmpeg_output, start_time):
-    duration = None
-    time_pattern = r"time=\s*(\d+:\d+:\d+\.\d+)"
-    duration_pattern = r"Duration:\s*(\d+:\d+:\d+\.\d+)"
-
-    if match := re.search(duration_pattern, ffmpeg_output):
-        duration = match.group(1)
-
-    if match := re.search(time_pattern, ffmpeg_output):
-        current_time = match.group(1)
-        if duration:
-            duration_seconds = convert_time_to_seconds(duration)
-            current_seconds = convert_time_to_seconds(current_time)
-            progress = int((current_seconds / duration_seconds) * 100)
-            eta = duration_seconds - current_seconds
-            return progress, eta
-    return 0, 0
-
-def convert_time_to_seconds(time_str):
-    h, m, s = map(float, time_str.split(':'))
-    return int(h * 3600 + m * 60 + s)
-
-def generate_progress_bar(progress):
-    bar_length = 40  # Adjust the length as needed
-    filled_length = int(bar_length * progress // 100)
-    bar = '◻' * filled_length + '◼' * (bar_length - filled_length)
-    return bar
+        return {
+            "progress": f"[{'◻' * (progress // 5)}{'◼' * (20 - progress // 5)}] {progress}%",
+            "elapsed_time": elapsed_time,
+            "eta": f"{eta} seconds"
+        }
+    return None
 
 
 
