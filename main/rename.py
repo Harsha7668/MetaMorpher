@@ -2583,6 +2583,7 @@ async def ping(bot, msg):
     time_taken_s = (end_t - start_t) * 1000
     await rm.edit(f"Pong!📍\n{time_taken_s:.3f} ms")
 
+"""
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
@@ -2686,7 +2687,131 @@ def compress_video(input_path, output_path):
     stdout, stderr = process.communicate()
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
-        
+"""
+
+
+@Client.on_message(filters.command("compress") & filters.chat(GROUP))
+async def compress_media(bot, msg: Message):
+    user_id = msg.from_user.id
+
+    reply = msg.reply_to_message
+    if not reply:
+        return await msg.reply_text("Please reply to a media file with the compress command\nFormat: `compress -n output_filename`")
+
+    if len(msg.command) < 3 or msg.command[1] != "-n":
+        return await msg.reply_text("Please provide the output filename with the `-n` flag\nFormat: `compress -n output_filename`")
+
+    output_filename = " ".join(msg.command[2:]).strip()
+
+    if not output_filename.lower().endswith(('.mkv', '.mp4', '.avi')):
+        return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
+
+    media = reply.document or reply.audio or reply.video
+    if not media:
+        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the compress command.")
+
+    sts = await msg.reply_text("🚀 Downloading media... ⚡")
+    c_time = time.time()
+    try:
+        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+    except Exception as e:
+        await safe_edit_message(sts, f"Error downloading media: {e}")
+        return
+
+    output_file = output_filename
+
+    await safe_edit_message(sts, "💠 Compressing media... ⚡")
+    try:
+        await compress_video(downloaded, output_file, sts, bot)
+    except Exception as e:
+        await safe_edit_message(sts, f"Error compressing media: {e}")
+        os.remove(downloaded)
+        return
+
+    # Retrieve thumbnail from the database
+    thumbnail_file_id = await db.get_thumbnail(user_id)
+    file_thumb = None
+    if thumbnail_file_id:
+        try:
+            file_thumb = await bot.download_media(thumbnail_file_id)
+        except Exception:
+            pass
+    else:
+        if hasattr(media, 'thumbs') and media.thumbs:
+            try:
+                file_thumb = await bot.download_media(media.thumbs[0].file_id)
+            except Exception as e:
+                file_thumb = None
+
+    filesize = os.path.getsize(output_file)
+    filesize_human = humanbytes(filesize)
+    cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
+
+    await safe_edit_message(sts, "💠 Uploading... ⚡")
+    c_time = time.time()
+
+    if filesize > FILE_SIZE_LIMIT:
+        file_link = await upload_to_google_drive(output_file, output_filename, sts)
+        button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+        await msg.reply_text(
+            f"**File successfully compressed and uploaded to Google Drive!**\n\n"
+            f"**Google Drive Link**: [View File]({file_link})\n\n"
+            f"**Uploaded File**: {output_filename}\n"
+            f"**Request User:** {msg.from_user.mention}\n\n"
+            f"**Size**: {filesize_human}",
+            reply_markup=InlineKeyboardMarkup(button)
+        )
+    else:
+        try:
+            await bot.send_document(msg.chat.id, document=output_file, thumb=file_thumb, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+        except Exception as e:
+            return await safe_edit_message(sts, f"Error: {e}")
+
+    os.remove(downloaded)
+    os.remove(output_file)
+    if file_thumb and os.path.exists(file_thumb):
+        os.remove(file_thumb)
+    await sts.delete()
+
+
+async def compress_video(input_path, output_path, sts, bot):
+    command = [
+        'ffmpeg',
+        '-i', input_path,
+        '-preset', 'ultrafast',
+        '-c:v', 'libx265',
+        '-crf', '27',
+        '-map', '0:v',
+        '-c:a', 'aac',
+        '-map', '0:a',
+        '-c:s', 'copy',
+        '-map', '0:s?',
+        output_path,
+        '-y'
+    ]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    total_size = os.path.getsize(input_path)
+    last_update_time = time.time()
+
+    while True:
+        output = process.stdout.readline()
+        if process.poll() is not None and not output:
+            break
+        if output:
+            # Update progress every 5 seconds
+            if time.time() - last_update_time >= 5:
+                if os.path.exists(output_path):
+                    current_size = os.path.getsize(output_path)
+                    progress_percent = (current_size / total_size) * 100
+                    await safe_edit_message(sts, f"💠 Compressing media... ⚡\nProgress: {progress_percent:.2f}%")
+                last_update_time = time.time()
+
+    stdout, stderr = process.communicate()
+    if process.returncode != 0:
+        raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
+
+
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
     app.run()
