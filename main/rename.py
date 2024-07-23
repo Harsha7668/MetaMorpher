@@ -2691,14 +2691,6 @@ def compress_video(input_path, output_path):
 
 
 import re
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-import os
-import time
-import subprocess
-import re
-from your_database_module import db  # replace with your actual database module
-from your_utils_module import safe_edit_message, progress_message, humanbytes, upload_to_google_drive  # replace with your actual utility functions
 
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
