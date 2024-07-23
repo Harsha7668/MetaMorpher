@@ -2890,6 +2890,7 @@ def compress_video(input_path, output_path, progress_callback=None):
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {stderr}")
 
+@Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
 
