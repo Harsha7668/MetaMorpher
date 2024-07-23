@@ -31,7 +31,22 @@ class Database:
             print(f"An error occurred while updating the user: {e}")
             raise
 
-      
+
+
+    async def save_attach_photo(self, user_id, custom_photo_path):
+        await self.files_col.update_one(
+            {'id': user_id},
+            {'$set': {'attach_photo_file_path': custom_photo_path}},
+            upsert=True
+        )
+
+    async def get_attach_photo(self, user_id):
+        file_data = await self.files_col.find_one({'id': user_id})
+        if file_data:
+            return file_data.get('attach_photo_file_path')
+        return None
+
+          
  
     async def ban_user(self, user_id: int):
         try:
@@ -218,14 +233,7 @@ class Database:
     async def delete_thumbnail(self, user_id):
         await self.files_col.update_one({'id': user_id}, {'$unset': {'thumbnail_file_id': ""}})
     
-    async def save_attach_photo(self, user_id, file_id):
-        await self.files_col.update_one({'id': user_id}, {'$set': {'attach_photo_file_id': file_id}}, upsert=True)
     
-    async def get_attach_photo(self, user_id):
-        file_data = await self.files_col.find_one({'id': user_id})
-        if file_data:
-            return file_data.get('attach_photo_file_id')
-        return None
 
     async def save_merge_state(self, user_id, merge_state):
         try:
