@@ -2692,7 +2692,6 @@ def compress_video(input_path, output_path):
 
 import re
 
-
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
@@ -2811,10 +2810,11 @@ async def compress_video(input_path, output_path, sts, bot, user_id):
             if current_time - last_update_time >= 10:  # Update every 10 seconds
                 progress, eta = get_progress(output, start_time)
                 elapsed_time = current_time - start_time
+                progress_bar = generate_progress_bar(progress)
                 await bot.edit_message_text(
                     chat_id=sts.chat.id,
                     message_id=sts.id,
-                    text=f"💠 Compressing media... ⚡\n[{'•' * progress}{' ' * (100 - progress)}] {progress}%\nElapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds",
+                    text=f"💠 Compressing media... ⚡\n[{progress_bar}] {progress}%\nElapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds",
                     reply_markup=InlineKeyboardMarkup(
                         [
                             [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
@@ -2848,6 +2848,14 @@ def get_progress(ffmpeg_output, start_time):
 def convert_time_to_seconds(time_str):
     h, m, s = map(float, time_str.split(':'))
     return int(h * 3600 + m * 60 + s)
+
+def generate_progress_bar(progress):
+    bar_length = 40  # Adjust the length as needed
+    filled_length = int(bar_length * progress // 100)
+    bar = '◼' * filled_length + '◻' * (bar_length - filled_length)
+    return bar
+
+
 
 
 if __name__ == '__main__':
