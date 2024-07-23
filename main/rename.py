@@ -2691,6 +2691,8 @@ def compress_video(input_path, output_path):
 
 
 import re
+
+
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
@@ -2798,24 +2800,28 @@ async def compress_video(input_path, output_path, sts, bot, user_id):
     ]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     start_time = time.time()
+    last_update_time = start_time
 
     while True:
         output = process.stderr.readline()
         if output == '' and process.poll() is not None:
             break
         if output:
-            progress, eta = get_progress(output, start_time)
-            elapsed_time = time.time() - start_time
-            await bot.edit_message_text(
-                chat_id=sts.chat.id,
-                message_id=sts.id,
-                text=f"💠 Compressing media... ⚡\n[{'•' * progress}{' ' * (100 - progress)}] {progress}%\nElapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds",
-                reply_markup=InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
-                    ]
+            current_time = time.time()
+            if current_time - last_update_time >= 10:  # Update every 10 seconds
+                progress, eta = get_progress(output, start_time)
+                elapsed_time = current_time - start_time
+                await bot.edit_message_text(
+                    chat_id=sts.chat.id,
+                    message_id=sts.id,
+                    text=f"💠 Compressing media... ⚡\n[{'•' * progress}{' ' * (100 - progress)}] {progress}%\nElapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds",
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [InlineKeyboardButton("Check Progress", callback_data=f"progress_{user_id}")]
+                        ]
+                    )
                 )
-            )
+                last_update_time = current_time
 
     stderr = process.communicate()[1]
     if process.returncode != 0:
@@ -2842,6 +2848,7 @@ def get_progress(ffmpeg_output, start_time):
 def convert_time_to_seconds(time_str):
     h, m, s = map(float, time_str.split(':'))
     return int(h * 3600 + m * 60 + s)
+
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
