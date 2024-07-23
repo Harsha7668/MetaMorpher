@@ -2690,7 +2690,7 @@ def compress_video(input_path, output_path):
 """
 
 
-
+import re
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
