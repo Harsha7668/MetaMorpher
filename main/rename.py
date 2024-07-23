@@ -653,107 +653,80 @@ async def rename_file(bot, msg):
     await sts.delete()"""
 
 
-import hashlib
+@Client.on_message(filters.command("upload"))
+async def upload_selection(client, message):
+    buttons = [
+        [InlineKeyboardButton("Telegram", callback_data="upload_telegram")],
+        [InlineKeyboardButton("Google Drive", callback_data="upload_gdrive")],
+        [InlineKeyboardButton("Gofile", callback_data="upload_gofile")]
+    ]
+    reply_markup = InlineKeyboardMarkup(buttons)
+    await message.reply("Please choose where to upload the file:", reply_markup=reply_markup)
 
-def generate_callback_data(upload_method, new_name):
-    # Create a short unique identifier for the new_name
-    short_name = hashlib.md5(new_name.encode()).hexdigest()[:8]  # First 8 characters of the hash
-    return f"{upload_method}:{short_name}"
+@Client.on_callback_query(filters.regex(r"upload_(telegram|gdrive|gofile)"))
+async def handle_upload_selection(client, callback_query):
+    user_id = callback_query.from_user.id
+    method = callback_query.data.split("_")[1]
+    await set_user_settings(user_id, {"upload_method": method})
+    await callback_query.message.reply_text(f"Upload method set to {method.capitalize()}.")
+    await callback_query.answer()
 
 @Client.on_message(filters.command("rename") & filters.chat(GROUP))
-async def rename_file(bot, msg):
-    if len(msg.command) < 2 or not msg.reply_to_message:
-        return await msg.reply_text("Please reply to a file, video, or audio with the new filename and extension (e.g., .mkv, .mp4, .zip).")
+async def rename_file(client, message):
+    if len(message.command) < 2 or not message.reply_to_message:
+        return await message.reply_text("Please reply to a file, video, or audio with the new filename and extension (e.g., .mkv, .mp4, .zip).")
 
-    reply = msg.reply_to_message
+    reply = message.reply_to_message
     media = reply.document or reply.audio or reply.video
     if not media:
-        return await msg.reply_text("Please reply to a file, video, or audio with the new filename and extension (e.g., .mkv, .mp4, .zip).")
+        return await message.reply_text("Please reply to a file, video, or audio with the new filename and extension (e.g., .mkv, .mp4, .zip).")
 
-    new_name = msg.text.split(" ", 1)[1]
-    sts = await msg.reply_text("🚀 Preparing options... ⚡")
-
-    # Inline keyboard for upload options with shortened callback data
-    keyboard = [
-        [
-            InlineKeyboardButton("Upload to Telegram", callback_data=generate_callback_data("upload_telegram", new_name)),
-            InlineKeyboardButton("Upload to Google Drive", callback_data=generate_callback_data("upload_gdrive", new_name)),
-            InlineKeyboardButton("Upload to Gofile", callback_data=generate_callback_data("upload_gofile", new_name))
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await sts.edit_text("Please choose where to upload the file:", reply_markup=reply_markup)
-
-
-@Client.on_callback_query(filters.regex(r"upload_(telegram|gdrive|gofile):"))
-async def handle_upload_selection(bot, callback_query):
-    user_id = callback_query.from_user.id
-    data = callback_query.data.split(":")
-    upload_method = data[0]
-    short_name = data[1]
-
-    # Access the reply_to_message directly
-    reply = callback_query.message.reply_to_message
-
-    if not reply:
-        return await callback_query.message.reply_text("No message to reply to.")
-
-    # Log debug information about the reply
-    reply_info = (
-        f"Reply ID: {reply.message_id}\n"
-        f"Reply Type: {'Document' if reply.document else 'Audio' if reply.audio else 'Video' if reply.video else 'None'}\n"
-        f"Document: {reply.document}\n"
-        f"Audio: {reply.audio}\n"
-        f"Video: {reply.video}"
-    )
-    print(reply_info)  # For debugging purposes
-
-    media = reply.document or reply.audio or reply.video
-    if not media:
-        return await callback_query.message.reply_text("The replied message is not a file, video, or audio.")
-
-    # Retrieve the actual new_name from the database or mapping
-    new_name = await get_original_name(short_name)
-    if not new_name:
-        return await callback_query.message.reply_text("Unable to retrieve the file name.")
-
-    sts = await callback_query.message.reply_text("🚀 Processing... ⚡")
+    new_name = message.text.split(" ", 1)[1]
+    sts = await message.reply_text("🚀 Downloading... ⚡")
     c_time = time.time()
     downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
-    filesize = humanbytes(media.file_size)
+    file_size = media.file_size
+    filesize = humanbytes(file_size)
 
-    if upload_method == "upload_telegram":
-        # Handle Telegram upload
+    if CAPTION:
+        try:
+            cap = CAPTION.format(file_name=new_name, file_size=filesize)
+        except KeyError as e:
+            return await sts.edit_text(f"Caption error: unexpected keyword ({e})")
+    else:
         cap = f"{new_name}\n\n🌟 Size: {filesize}"
-        og_thumbnail = None
-        
-        if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
-            # Upload to Google Drive if file size exceeds limit
+
+    # Retrieve thumbnail from the database
+    thumbnail_file_id = await db.get_thumbnail(message.from_user.id)
+    og_thumbnail = None
+    if thumbnail_file_id:
+        try:
+            og_thumbnail = await client.download_media(thumbnail_file_id)
+        except Exception:
+            pass
+    else:
+        if hasattr(media, 'thumbs') and media.thumbs:
+            try:
+                og_thumbnail = await client.download_media(media.thumbs[0].file_id)
+            except Exception:
+                pass
+
+    # Get user settings for upload method
+    user_id = message.from_user.id
+    upload_method = await get_user_settings(user_id)
+
+    if file_size > FILE_SIZE_LIMIT and upload_method != 'telegram':
+        if upload_method == 'gdrive':
             file_link = await upload_to_google_drive(downloaded, new_name, sts)
-            await callback_query.message.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
-        else:
-            try:
-                await bot.send_document(callback_query.message.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
-            except Exception as e:
-                await sts.edit_text(f"Error: {e}")
+            await message.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+        elif upload_method == 'gofile':
+            gofile_api_key = await db.get_gofile_api_key(user_id)
+            if not gofile_api_key:
+                await sts.edit_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
+                os.remove(downloaded)
+                return
 
-    elif upload_method == "upload_gdrive":
-        # Handle Google Drive upload
-        file_link = await upload_to_google_drive(downloaded, new_name, sts)
-        await callback_query.message.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
-
-    elif upload_method == "upload_gofile":
-        # Retrieve Gofile API key from database
-        gofile_api_key = await db.get_gofile_api_key(user_id)
-        if not gofile_api_key:
-            await sts.edit_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
-            os.remove(downloaded)
-            return
-
-        async with aiohttp.ClientSession() as session:
-            try:
-                # Get the server to upload the file
+            async with aiohttp.ClientSession() as session:
                 async with session.get("https://api.gofile.io/getServer") as resp:
                     if resp.status != 200:
                         return await sts.edit_text(f"Failed to get server. Status code: {resp.status}")
@@ -761,16 +734,12 @@ async def handle_upload_selection(bot, callback_query):
                     data = await resp.json()
                     server = data["data"]["server"]
 
-                # Upload the file to Gofile
                 with open(downloaded, "rb") as file:
                     form_data = aiohttp.FormData()
                     form_data.add_field("file", file, filename=new_name)
                     form_data.add_field("token", gofile_api_key)
 
-                    async with session.post(
-                        f"https://{server}.gofile.io/uploadFile",
-                        data=form_data
-                    ) as resp:
+                    async with session.post(f"https://{server}.gofile.io/uploadFile", data=form_data) as resp:
                         if resp.status != 200:
                             return await sts.edit_text(f"Upload failed: Status code {resp.status}")
 
@@ -780,16 +749,17 @@ async def handle_upload_selection(bot, callback_query):
                             await sts.edit_text(f"Upload successful!\nDownload link: {download_url}")
                         else:
                             await sts.edit_text(f"Upload failed: {response['message']}")
-            except Exception as e:
-                await sts.edit_text(f"Error during upload: {e}")
+    else:
+        try:
+            await client.send_document(message.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+        except Exception as e:
+            await sts.edit_text(f"Error: {e}")
 
     os.remove(downloaded)
     await sts.delete()
 
-async def get_original_name(short_name):
-    # Implement a way to retrieve the original name using the short_name
-    pass
-    
+
+
 #Change Metadata Code
 @Client.on_message(filters.command("changemetadata") & filters.chat(GROUP))
 async def change_metadata(bot, msg: Message):
