@@ -12,7 +12,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "6487202001:AAEAKAPWqD44xgF4a-1DxgwVnXa3
 ADMIN = int(os.environ.get("ADMIN", '6469754522'))
 FSUB_UPDATES = os.environ.get("FSUB_CHANNEL", "Sunrises24BotUpdates")
 FSUB_GROUP = os.environ.get("FSUB_GROUP", "Sunrises24BotSupport")
-DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://UPLOADXPRO24BOT:UPLOADXPRO24BOT@cluster0.hjfk60f.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://INFINITYRENAME24BOT:INFINITYRENAME24BOT@cluster0.colorb9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
 CAPTION = os.environ.get("CAPTION", "")
 group = environ.get('GROUP', '-1002173560131')
