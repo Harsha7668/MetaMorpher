@@ -56,6 +56,17 @@ EXTRACT_ENABLED = True
 
 
 
+@Client.on_message(filters.command("setupload"))
+async def set_upload_method(client, message):
+    user_id = message.from_user.id
+    method = message.text.split(" ", 1)[1].strip().lower()
+
+    if method not in ["telegram", "gdrive", "gofile"]:
+        return await message.reply("Invalid method. Please choose 'telegram', 'gdrive', or 'gofile'.")
+
+    await set_user_settings(user_id, {"upload_method": method})
+    await message.reply(f"Upload method set to {method.capitalize()}.")
+
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
 # Command handler to start the interaction (only in admin)
 @Client.on_message(filters.command("bsettings") & filters.chat(ADMIN))
