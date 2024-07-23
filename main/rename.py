@@ -2851,12 +2851,10 @@ def compress_video(input_path, output_path):
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
 """
 
+
 import re
-import subprocess
-import math
 
-
-def compress_video(input_path, output_path, progress_callback=None):
+async def compress_video(input_path, output_path, progress_callback=None):
     command = [
         'ffmpeg',
         '-i', input_path,
@@ -2884,14 +2882,15 @@ def compress_video(input_path, output_path, progress_callback=None):
             if match:
                 time_ms = int(match.group(1))
                 if progress_callback:
-                    progress_callback(time_ms)
+                    # Create a task to call the callback asynchronously
+                    asyncio.create_task(progress_callback(time_ms))
 
     stdout, stderr = process.communicate()
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {stderr}")
 
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
-async def compress_media(bot, msg: Message):
+async def compress_media(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
     reply = msg.reply_to_message
@@ -2921,10 +2920,8 @@ async def compress_media(bot, msg: Message):
     output_file = output_filename
 
     async def compress_progress_callback(time_ms):
-        # Assuming you have a way to get the total duration of the video
-        # This is just a placeholder and needs to be replaced with actual duration handling
-        total_duration_ms = 10000000  # Replace with actual total duration in ms
-
+        # Replace with actual total duration handling
+        total_duration_ms = 10000000  # Placeholder
         percentage = min(time_ms / total_duration_ms * 100, 100)
         progress_bar = ''.join(["■" for _ in range(math.floor(percentage / 5))]) + \
                        ''.join(["□" for _ in range(20 - math.floor(percentage / 5))])
@@ -2934,7 +2931,7 @@ async def compress_media(bot, msg: Message):
 
     await safe_edit_message(sts, "💠 Compressing media... ⚡")
     try:
-        compress_video(downloaded, output_file, progress_callback=compress_progress_callback)
+        await compress_video(downloaded, output_file, progress_callback=compress_progress_callback)
     except Exception as e:
         await safe_edit_message(sts, f"Error compressing media: {e}")
         os.remove(downloaded)
@@ -2984,7 +2981,6 @@ async def compress_media(bot, msg: Message):
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
-
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
