@@ -2690,6 +2690,7 @@ def compress_video(input_path, output_path):
 """
 
 
+
 @Client.on_message(filters.command("compress") & filters.chat(GROUP))
 async def compress_media(bot, msg: Message):
     user_id = msg.from_user.id
@@ -2725,8 +2726,8 @@ async def compress_media(bot, msg: Message):
 
     output_file = output_filename
 
-    await bot.edit_message_text(chat_id=sts.chat.id, message_id=sts.message_id, text="💠 Compressing media... ⚡")
-    await bot.edit_message_reply_markup(chat_id=sts.chat.id, message_id=sts.message_id, reply_markup=progress_markup)
+    await bot.edit_message_text(chat_id=sts.chat.id, message_id=sts.id, text="💠 Compressing media... ⚡")
+    await bot.edit_message_reply_markup(chat_id=sts.chat.id, message_id=sts.id, reply_markup=progress_markup)
 
     try:
         await compress_video(downloaded, output_file, sts, bot, user_id)
@@ -2807,7 +2808,7 @@ async def compress_video(input_path, output_path, sts, bot, user_id):
             elapsed_time = time.time() - start_time
             await bot.edit_message_text(
                 chat_id=sts.chat.id,
-                message_id=sts.message_id,
+                message_id=sts.id,
                 text=f"💠 Compressing media... ⚡\n[{'•' * progress}{' ' * (100 - progress)}] {progress}%\nElapsed time: {elapsed_time:.2f} seconds\nETA: {eta:.2f} seconds",
                 reply_markup=InlineKeyboardMarkup(
                     [
@@ -2841,8 +2842,6 @@ def get_progress(ffmpeg_output, start_time):
 def convert_time_to_seconds(time_str):
     h, m, s = map(float, time_str.split(':'))
     return int(h * 3600 + m * 60 + s)
-
-
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
