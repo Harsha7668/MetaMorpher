@@ -2969,6 +2969,39 @@ async def change_leech(bot, msg: Message):
     if not output_filename.lower().endswith(('.mkv', '.mp4', '.avi')):
         return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
 
+@Client.on_message(filters.command("change_leech") & filters.chat(GROUP))
+async def change_leech(bot, msg: Message):
+    global METADATA_ENABLED, CHANGE_INDEX_ENABLED
+
+    if not (METADATA_ENABLED and CHANGE_INDEX_ENABLED):
+        return await msg.reply_text("One or more required features are currently disabled.")
+
+    user_id = msg.from_user.id
+
+    # Fetch metadata titles from the database
+    metadata_titles = await db.get_metadata_titles(user_id)
+    video_title = metadata_titles.get('video_title', '')
+    audio_title = metadata_titles.get('audio_title', '')
+    subtitle_title = metadata_titles.get('subtitle_title', '')
+
+    if not any([video_title, audio_title, subtitle_title]):
+        return await msg.reply_text("Metadata titles are not set. Please set metadata titles using `/setmetadata video_title audio_title subtitle_title`.")
+
+    reply = msg.reply_to_message
+    if not reply:
+        return await msg.reply_text("Please reply to a media file with the change_leech command\nFormat: `/change_leech a-2 -m -n filename.mkv`")
+
+    if len(msg.command) < 5 or '-m' not in msg.command or '-n' not in msg.command:
+        return await msg.reply_text("Please provide the correct format\nFormat: `/change_leech a-2 -m -n filename.mkv`")
+
+    index_cmd = msg.command[1]
+    metadata_flag_index = msg.command.index('-m')
+    output_flag_index = msg.command.index('-n')
+    output_filename = " ".join(msg.command[output_flag_index + 1:]).strip()
+
+    if not output_filename.lower().endswith(('.mkv', '.mp4', '.avi')):
+        return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
+
     media = reply.document or reply.audio or reply.video or reply.text
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the change_leech command.")
@@ -3037,7 +3070,7 @@ async def change_leech(bot, msg: Message):
             if hasattr(media, 'thumbs') and media.thumbs:
                 try:
                     file_thumb = await bot.download_media(media.thumbs[0].file_id)
-                except Exception as e:
+                except Exception:
                     file_thumb = None
 
         filesize = os.path.getsize(output_file)
@@ -3061,23 +3094,28 @@ async def change_leech(bot, msg: Message):
         else:
             try:
                 await bot.send_document(
-                msg.chat.id,
-                document=output_file,
-                file_name=output_filename,
-                thumb=file_thumb,
-                caption=cap,
-                progress=progress_message,
-                progress_args=("💠 Upload Started... ⚡", sts, c_time)
-            )
-        except Exception as e:
-            return await safe_edit_message(sts, f"Error: {e}")
+                    msg.chat.id,
+                    document=output_file,
+                    file_name=output_filename,
+                    thumb=file_thumb,
+                    caption=cap,
+                    progress=progress_message,
+                    progress_args=("💠 Upload Started... ⚡", sts, c_time)
+                )
+            except Exception as e:
+                await safe_edit_message(sts, f"Error: {e}")
 
-    os.remove(downloaded)
-    os.remove(intermediate_file)
-    os.remove(output_file)
-    if file_thumb and os.path.exists(file_thumb):
-        os.remove(file_thumb)
-    await sts.delete()
+    finally:
+        # Clean up temporary files
+        if os.path.exists(downloaded):
+            os.remove(downloaded)
+        if os.path.exists(intermediate_file):
+            os.remove(intermediate_file)
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        if file_thumb and os.path.exists(file_thumb):
+            os.remove(file_thumb)
+        await sts.delete()
 
 
 if __name__ == '__main__':
