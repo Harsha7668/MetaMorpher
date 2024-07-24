@@ -3012,17 +3012,11 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
     await sts.delete()"""
 
-
-from pyrogram.errors import MessageIdInvalid
-
-import asyncio
-import time
-import aiohttp
-import os
 from pyrogram import Client, filters
 from pyrogram.errors import RPCError
-
-FILE_SIZE_LIMIT = 50 * 1024 * 1024  # Adjust the limit as needed
+import aiohttp
+import os
+import time
 
 @Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
 async def changeleech(bot, msg: Message):
@@ -3048,13 +3042,8 @@ async def changeleech(bot, msg: Message):
 
         try:
             downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
-            if not downloaded:
-                return await sts.edit("Download failed: File not found.")
         except RPCError as e:
             return await sts.edit(f"Download failed: {e}")
-
-        if not os.path.exists(downloaded):
-            return await sts.edit("Download failed: File not found.")
 
         filesize = humanbytes(os.path.getsize(downloaded))
 
@@ -3077,7 +3066,7 @@ async def changeleech(bot, msg: Message):
                 except Exception:
                     pass
 
-        await update_message_status(sts, "💠 Uploading... ⚡")
+        await sts.edit("💠 Uploading... ⚡")
         c_time = time.time()
 
         if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
@@ -3085,7 +3074,7 @@ async def changeleech(bot, msg: Message):
             await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
         else:
             try:
-                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=f"{new_name}\n\n🌟 Size: {filesize}", progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
             except ValueError as e:
                 return await sts.edit(f"Upload failed: {e}")
             except TimeoutError as e:
@@ -3099,16 +3088,6 @@ async def changeleech(bot, msg: Message):
             print(f"Error deleting files: {e}")
 
         await sts.delete()
-
-async def update_message_status(sts, new_text):
-    for _ in range(3):  # Retry up to 3 times
-        try:
-            await sts.edit(new_text)
-            return
-        except RPCError as e:
-            print(f"Failed to update message status: {e}")
-            await asyncio.sleep(1)  # Wait before retrying
-    await sts.reply_text("Failed to update status after multiple attempts.")
 
 async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time):
     try:
@@ -3149,7 +3128,7 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
             except Exception:
                 pass
 
-    await update_message_status(sts, "💠 Uploading... ⚡")
+    await sts.edit("💠 Uploading... ⚡")
     c_time = time.time()
 
     if os.path.getsize(new_name) > FILE_SIZE_LIMIT:
