@@ -2878,6 +2878,78 @@ async def change(bot, msg: Message):
     await sts.delete()
 
 
+ 
+@Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
+async def changeleech(bot, msg: Message):
+    if len(msg.command) < 2 or not msg.reply_to_message:
+        return await msg.reply_text("Please reply to a file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
+
+    reply = msg.reply_to_message
+    new_name = msg.text.split(" ", 1)[1]
+
+    if not new_name.endswith((".mkv", ".mp4", ".zip")):
+        return await msg.reply_text("Please specify a filename ending with .mkv, .mp4, or .zip.")
+
+    media = reply.document or reply.audio or reply.video or reply.text
+
+    sts = await msg.reply_text("🚀 Downloading... ⚡")
+    c_time = time.time()
+
+    if reply.text and ("seedr" in reply.text or "workers" in reply.text):
+        await handle_link_download(bot, msg, reply.text, new_name, media, sts, c_time)
+    else:
+        if not media:
+            return await msg.reply_text("Please reply to a valid file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
+
+        try:
+            downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+        except RPCError as e:
+            return await sts.edit(f"Download failed: {e}")
+
+        filesize = humanbytes(os.path.getsize(downloaded))
+
+        # Change indexing and metadata if required
+        if len(msg.command) > 2:
+            await change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, c_time)
+
+        # Thumbnail handling
+        thumbnail_file_id = await db.get_thumbnail(msg.from_user.id)
+        og_thumbnail = None
+        if thumbnail_file_id:
+            try:
+                og_thumbnail = await bot.download_media(thumbnail_file_id)
+            except Exception:
+                pass
+        else:
+            if hasattr(media, 'thumbs') and media.thumbs:
+                try:
+                    og_thumbnail = await bot.download_media(media.thumbs[0].file_id)
+                except Exception:
+                    pass
+
+        await sts.edit("💠 Uploading... ⚡")
+        c_time = time.time()
+
+        if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
+            file_link = await upload_to_google_drive(downloaded, new_name, sts)
+            await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+        else:
+            try:
+                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+            except ValueError as e:
+                return await sts.edit(f"Upload failed: {e}")
+            except TimeoutError as e:
+                return await sts.edit(f"Upload timed out: {e}")
+
+        try:
+            if og_thumbnail:
+                os.remove(og_thumbnail)
+            os.remove(downloaded)
+        except Exception as e:
+            print(f"Error deleting files: {e}")
+
+        await sts.delete()
+
 async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time):
     try:
         async with aiohttp.ClientSession() as session:
@@ -2897,6 +2969,10 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
         return
 
     filesize = humanbytes(os.path.getsize(new_name))
+
+    # Change indexing and metadata if required
+    if len(msg.command) > 2:
+        await change_metadata_and_index(bot, msg, new_name, new_name, media, sts, c_time)
 
     # Thumbnail handling
     thumbnail_file_id = await db.get_thumbnail(msg.from_user.id)
@@ -2936,36 +3012,12 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
     await sts.delete()
 
-
-
-async def download_media_from_link(url, sts):
-    temp_dir = "/tmp"  # Or any other temporary directory
-    filename = os.path.join(temp_dir, os.path.basename(url))
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                raise Exception(f"Failed to download file: {resp.status}")
-            
-            total_size = int(resp.headers.get('content-length', 0))
-            chunk_size = 1024 * 1024  # 1 MB
-            downloaded_size = 0
-
-            with open(filename, 'wb') as f:
-                async for chunk in resp.content.iter_chunked(chunk_size):
-                    f.write(chunk)
-                    downloaded_size += len(chunk)
-                    await asyncio.sleep(0.1)  # Simulating some progress handling
-                    await safe_edit_message(sts, f"🚀 Downloaded {downloaded_size / total_size:.2%}")
-
-    return filename
-
-@Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
-async def changeleech(bot, msg: Message):
+async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, c_time):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
 
     if not (METADATA_ENABLED and CHANGE_INDEX_ENABLED):
-        return await msg.reply_text("One or more required features are currently disabled.")
+        await msg.reply_text("One or more required features are currently disabled.")
+        return
 
     user_id = msg.from_user.id
 
@@ -2976,45 +3028,20 @@ async def changeleech(bot, msg: Message):
     subtitle_title = metadata_titles.get('subtitle_title', '')
 
     if not any([video_title, audio_title, subtitle_title]):
-        return await msg.reply_text("Metadata titles are not set. Please set metadata titles using `/setmetadata video_title audio_title subtitle_title`.")
-
-    reply = msg.reply_to_message
-    download_link = None
-
-    # Check if the command contains a download link as the last argument
-    if len(msg.command) > 5 and msg.command[-1].startswith("http"):
-        download_link = msg.command[-1]
-
-    if not reply and not download_link:
-        return await msg.reply_text("Please reply to a media file or provide a direct download link with the change command\nFormat: `/changeleech a-2 -m -n filename.mkv <optional: download link>`")
+        await msg.reply_text("Metadata titles are not set. Please set metadata titles using `/setmetadata video_title audio_title subtitle_title`.")
+        return
 
     if len(msg.command) < 5 or '-m' not in msg.command or '-n' not in msg.command:
-        return await msg.reply_text("Please provide the correct format\nFormat: `/changeleech a-2 -m -n filename.mkv <optional: download link>`")
+        await msg.reply_text("Please provide the correct format\nFormat: `/change a-2 -m -n filename.mkv`")
+        return
 
     index_cmd = msg.command[1]
     metadata_flag_index = msg.command.index('-m')
     output_flag_index = msg.command.index('-n')
     output_filename = " ".join(msg.command[output_flag_index + 1:]).strip()
-    if download_link:
-        output_filename = " ".join(msg.command[output_flag_index + 1:-1]).strip()
 
     if not output_filename.lower().endswith(('.mkv', '.mp4', '.avi')):
-        return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
-
-    media = reply.document or reply.audio or reply.video
-    if not media and not download_link:
-        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) or provide a direct download link with the change command.")
-
-    sts = await msg.reply_text("🚀 Downloading media... ⚡")
-    c_time = time.time()
-
-    try:
-        if media:
-            downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
-        else:
-            downloaded = await download_media_from_link(download_link, sts)  # Custom function to handle link downloads
-    except Exception as e:
-        await safe_edit_message(sts, f"Error downloading media: {e}")
+        await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
         return
 
     # Output file path (temporary file)
@@ -3080,7 +3107,7 @@ async def changeleech(bot, msg: Message):
     c_time = time.time()
 
     if filesize > FILE_SIZE_LIMIT:
-        file_link = await upload_to_google_drive(output_file, output_filename, sts)  # Custom function to handle Google Drive uploads
+        file_link = await upload_to_google_drive(output_file, output_filename, sts)
         button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
         await msg.reply_text(
             f"**File successfully changed audio index and metadata, then uploaded to Google Drive!**\n\n"
@@ -3110,17 +3137,6 @@ async def changeleech(bot, msg: Message):
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
-
-
-
-# Utility function to edit messages safely
-async def safe_edit_message(message, text):
-    try:
-        await message.edit_text(text)
-    except:
-        pass
-
-
 
 
 if __name__ == '__main__':
