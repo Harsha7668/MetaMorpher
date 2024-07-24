@@ -3015,6 +3015,15 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
 from pyrogram.errors import MessageIdInvalid
 
+import asyncio
+import time
+import aiohttp
+import os
+from pyrogram import Client, filters
+from pyrogram.errors import RPCError
+
+FILE_SIZE_LIMIT = 50 * 1024 * 1024  # Adjust the limit as needed
+
 @Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
 async def changeleech(bot, msg: Message):
     if len(msg.command) < 2 or not msg.reply_to_message:
@@ -3068,7 +3077,7 @@ async def changeleech(bot, msg: Message):
                 except Exception:
                     pass
 
-        await sts.edit("💠 Uploading... ⚡")
+        await update_message_status(sts, "💠 Uploading... ⚡")
         c_time = time.time()
 
         if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
@@ -3090,6 +3099,16 @@ async def changeleech(bot, msg: Message):
             print(f"Error deleting files: {e}")
 
         await sts.delete()
+
+async def update_message_status(sts, new_text):
+    for _ in range(3):  # Retry up to 3 times
+        try:
+            await sts.edit(new_text)
+            return
+        except RPCError as e:
+            print(f"Failed to update message status: {e}")
+            await asyncio.sleep(1)  # Wait before retrying
+    await sts.reply_text("Failed to update status after multiple attempts.")
 
 async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time):
     try:
@@ -3130,7 +3149,7 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
             except Exception:
                 pass
 
-    await sts.edit("💠 Uploading... ⚡")
+    await update_message_status(sts, "💠 Uploading... ⚡")
     c_time = time.time()
 
     if os.path.getsize(new_name) > FILE_SIZE_LIMIT:
@@ -3152,7 +3171,6 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
         print(f"Error deleting files: {e}")
 
     await sts.delete()
-
 
 
 async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, c_time):
