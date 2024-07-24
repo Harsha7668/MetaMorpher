@@ -2736,12 +2736,14 @@ def compress_video(input_path, output_path):
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
 
+
+
 @Client.on_message(filters.command("change") & filters.chat(GROUP))
-async def change_metadata_and_index(bot, msg: Message):
+async def change(bot, msg: Message):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
 
-    if not METADATA_ENABLED and not CHANGE_INDEX_ENABLED:
-        return await msg.reply_text("Both metadata changing and audio index features are currently disabled.")
+    if not (METADATA_ENABLED and CHANGE_INDEX_ENABLED):
+        return await msg.reply_text("One or more required features are currently disabled.")
 
     user_id = msg.from_user.id
 
@@ -2751,33 +2753,27 @@ async def change_metadata_and_index(bot, msg: Message):
     audio_title = metadata_titles.get('audio_title', '')
     subtitle_title = metadata_titles.get('subtitle_title', '')
 
+    if not any([video_title, audio_title, subtitle_title]):
+        return await msg.reply_text("Metadata titles are not set. Please set metadata titles using `/setmetadata video_title audio_title subtitle_title`.")
+
     reply = msg.reply_to_message
     if not reply:
-        return await msg.reply_text("Please reply to a media file with the command\nFormat: `change -n filename.mkv` or `change a-3 -n filename.mkv`")
+        return await msg.reply_text("Please reply to a media file with the change command\nFormat: `/change a-2 -m -n filename.mkv`")
 
-    if len(msg.command) < 3:
-        return await msg.reply_text("Please provide the necessary flags and filename\nFormat: `change -n filename.mkv` or `change a-3 -n filename.mkv`")
+    if len(msg.command) < 5 or '-m' not in msg.command or '-n' not in msg.command:
+        return await msg.reply_text("Please provide the correct format\nFormat: `/change a-2 -m -n filename.mkv`")
 
-    index_cmd = None
-    output_filename = None
-
-    # Extract flags and output filename
-    for i in range(1, len(msg.command)):
-        if msg.command[i] == "-n":
-            output_filename = " ".join(msg.command[i + 1:])  # Join all the parts after the flag
-            break
-
-    index_cmd = " ".join(msg.command[1:i])  # Get the command before the flag
-
-    if not output_filename:
-        return await msg.reply_text("Please provide a filename using the `-n` flag.")
+    index_cmd = msg.command[1]
+    metadata_flag_index = msg.command.index('-m')
+    output_flag_index = msg.command.index('-n')
+    output_filename = " ".join(msg.command[output_flag_index + 1:]).strip()
 
     if not output_filename.lower().endswith(('.mkv', '.mp4', '.avi')):
         return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
 
     media = reply.document or reply.audio or reply.video
     if not media:
-        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the command.")
+        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the change command.")
 
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
@@ -2787,57 +2783,45 @@ async def change_metadata_and_index(bot, msg: Message):
         await safe_edit_message(sts, f"Error downloading media: {e}")
         return
 
-    temp_file = os.path.splitext(downloaded)[0] + "_temp" + os.path.splitext(downloaded)[1]
+    # Output file path (temporary file)
+    intermediate_file = os.path.splitext(downloaded)[0] + "_indexed" + os.path.splitext(downloaded)[1]
+
+    index_params = index_cmd.split('-')
+    stream_type = index_params[0]
+    indexes = [int(i) - 1 for i in index_params[1:]]
+
+    # Construct the FFmpeg command to modify indexes
+    ffmpeg_cmd = ['ffmpeg', '-i', downloaded, '-map', '0:v']  # Always map video stream
+
+    for idx in indexes:
+        ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
+
+    # Copy all subtitle streams if they exist
+    ffmpeg_cmd.extend(['-map', '0:s?'])
+
+    ffmpeg_cmd.extend(['-c', 'copy', intermediate_file, '-y'])
+
+    await safe_edit_message(sts, "💠 Changing audio indexing... ⚡")
+    process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
+        os.remove(downloaded)
+        if os.path.exists(intermediate_file):
+            os.remove(intermediate_file)
+        return
+
     output_file = output_filename
 
-    # Check if it's a metadata change or an audio index change
-    if index_cmd.startswith("a-") and CHANGE_INDEX_ENABLED:
-        # Handle audio index change
-        index_params = index_cmd.split('-')
-        stream_type = index_params[0]
-        indexes = [int(i) - 1 for i in index_params[1:]]
-
-        # Construct the FFmpeg command to modify indexes
-        ffmpeg_cmd = ['ffmpeg', '-i', downloaded, '-map', '0:v']  # Always map video stream
-
-        for idx in indexes:
-            ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
-
-        # Copy all subtitle streams if they exist
-        ffmpeg_cmd.extend(['-map', '0:s?'])
-
-        ffmpeg_cmd.extend(['-c', 'copy', temp_file, '-y'])
-
-        await safe_edit_message(sts, "💠 Changing audio indexing... ⚡")
-        process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
-            os.remove(downloaded)
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
-            return
-
-        # Metadata change on the new temp file
-        if METADATA_ENABLED:
-            await safe_edit_message(sts, "💠 Changing metadata... ⚡")
-            try:
-                change_video_metadata(temp_file, video_title, audio_title, subtitle_title, output_file)
-            except Exception as e:
-                await safe_edit_message(sts, f"Error changing metadata: {e}")
-                os.remove(downloaded)
-                os.remove(temp_file)
-                return
-    elif METADATA_ENABLED:
-        # Handle metadata change directly
-        await safe_edit_message(sts, "💠 Changing metadata... ⚡")
-        try:
-            change_video_metadata(downloaded, video_title, audio_title, subtitle_title, output_file)
-        except Exception as e:
-            await safe_edit_message(sts, f"Error changing metadata: {e}")
-            os.remove(downloaded)
-            return
+    await safe_edit_message(sts, "💠 Changing metadata... ⚡")
+    try:
+        change_video_metadata(intermediate_file, video_title, audio_title, subtitle_title, output_file)
+    except Exception as e:
+        await safe_edit_message(sts, f"Error changing metadata: {e}")
+        os.remove(downloaded)
+        os.remove(intermediate_file)
+        return
 
     # Retrieve thumbnail from the database
     thumbnail_file_id = await db.get_thumbnail(user_id)
@@ -2865,7 +2849,7 @@ async def change_metadata_and_index(bot, msg: Message):
         file_link = await upload_to_google_drive(output_file, output_filename, sts)
         button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
         await msg.reply_text(
-            f"**File successfully processed and uploaded to Google Drive!**\n\n"
+            f"**File successfully changed audio index and metadata, then uploaded to Google Drive!**\n\n"
             f"**Google Drive Link**: [View File]({file_link})\n\n"
             f"**Uploaded File**: {output_filename}\n"
             f"**Request User:** {msg.from_user.mention}\n\n"
@@ -2874,19 +2858,24 @@ async def change_metadata_and_index(bot, msg: Message):
         )
     else:
         try:
-            await bot.send_document(msg.chat.id, document=output_file, thumb=file_thumb, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+            await bot.send_document(
+                msg.chat.id,
+                document=output_file,
+                file_name=output_filename,
+                thumb=file_thumb,
+                caption=cap,
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+            )
         except Exception as e:
             return await safe_edit_message(sts, f"Error: {e}")
 
     os.remove(downloaded)
-    if os.path.exists(temp_file):
-        os.remove(temp_file)
+    os.remove(intermediate_file)
     os.remove(output_file)
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
-
-
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
