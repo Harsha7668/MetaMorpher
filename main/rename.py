@@ -2792,18 +2792,9 @@ async def change_metadata_and_index(bot, msg: Message):
 
     output_file = output_filename
 
-    # Handle metadata change
-    if METADATA_ENABLED:
-        await safe_edit_message(sts, "💠 Changing metadata... ⚡")
-        try:
-            change_video_metadata(downloaded, video_title, audio_title, subtitle_title, output_file)
-        except Exception as e:
-            await safe_edit_message(sts, f"Error changing metadata: {e}")
-            os.remove(downloaded)
-            return
-
-    # Handle audio index change
-    if CHANGE_INDEX_ENABLED and index_cmd.startswith("a-"):
+    # Check if it's a metadata change or an audio index change
+    if index_cmd.startswith("a-") and CHANGE_INDEX_ENABLED:
+        # Handle audio index change
         index_params = index_cmd.split('-')
         stream_type = index_params[0]
         indexes = [int(i) - 1 for i in index_params[1:]]
@@ -2828,6 +2819,16 @@ async def change_metadata_and_index(bot, msg: Message):
             os.remove(downloaded)
             if os.path.exists(output_file):
                 os.remove(output_file)
+            return
+
+    elif METADATA_ENABLED:
+        # Handle metadata change
+        await safe_edit_message(sts, "💠 Changing metadata... ⚡")
+        try:
+            change_video_metadata(downloaded, video_title, audio_title, subtitle_title, output_file)
+        except Exception as e:
+            await safe_edit_message(sts, f"Error changing metadata: {e}")
+            os.remove(downloaded)
             return
 
     # Retrieve thumbnail from the database
