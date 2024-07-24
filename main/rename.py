@@ -3039,8 +3039,13 @@ async def changeleech(bot, msg: Message):
 
         try:
             downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+            if not downloaded:
+                return await sts.edit("Download failed: File not found.")
         except RPCError as e:
             return await sts.edit(f"Download failed: {e}")
+
+        if not os.path.exists(downloaded):
+            return await sts.edit("Download failed: File not found.")
 
         filesize = humanbytes(os.path.getsize(downloaded))
 
@@ -3063,10 +3068,7 @@ async def changeleech(bot, msg: Message):
                 except Exception:
                     pass
 
-        try:
-            await sts.edit("💠 Uploading... ⚡")
-        except MessageIdInvalid:
-            pass
+        await sts.edit("💠 Uploading... ⚡")
         c_time = time.time()
 
         if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
@@ -3074,7 +3076,7 @@ async def changeleech(bot, msg: Message):
             await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
         else:
             try:
-                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=f"{new_name}\n\n🌟 Size: {filesize}", progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
             except ValueError as e:
                 return await sts.edit(f"Upload failed: {e}")
             except TimeoutError as e:
@@ -3087,10 +3089,7 @@ async def changeleech(bot, msg: Message):
         except Exception as e:
             print(f"Error deleting files: {e}")
 
-        try:
-            await sts.delete()
-        except MessageIdInvalid:
-            pass
+        await sts.delete()
 
 async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time):
     try:
@@ -3131,10 +3130,7 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
             except Exception:
                 pass
 
-    try:
-        await sts.edit("💠 Uploading... ⚡")
-    except MessageIdInvalid:
-        pass
+    await sts.edit("💠 Uploading... ⚡")
     c_time = time.time()
 
     if os.path.getsize(new_name) > FILE_SIZE_LIMIT:
@@ -3155,10 +3151,9 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
     except Exception as e:
         print(f"Error deleting files: {e}")
 
-    try:
-        await sts.delete()
-    except MessageIdInvalid:
-        pass
+    await sts.delete()
+
+
 
 async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, c_time):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
