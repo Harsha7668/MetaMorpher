@@ -2936,8 +2936,32 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
     await sts.delete()
 
+
+
+async def download_media_from_link(url, sts):
+    temp_dir = "/tmp"  # Or any other temporary directory
+    filename = os.path.join(temp_dir, os.path.basename(url))
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                raise Exception(f"Failed to download file: {resp.status}")
+            
+            total_size = int(resp.headers.get('content-length', 0))
+            chunk_size = 1024 * 1024  # 1 MB
+            downloaded_size = 0
+
+            with open(filename, 'wb') as f:
+                async for chunk in resp.content.iter_chunked(chunk_size):
+                    f.write(chunk)
+                    downloaded_size += len(chunk)
+                    await asyncio.sleep(0.1)  # Simulating some progress handling
+                    await safe_edit_message(sts, f"🚀 Downloaded {downloaded_size / total_size:.2%}")
+
+    return filename
+
 @Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
-async def change_leech(bot, msg: Message):
+async def changeleech(bot, msg: Message):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
 
     if not (METADATA_ENABLED and CHANGE_INDEX_ENABLED):
@@ -2955,142 +2979,147 @@ async def change_leech(bot, msg: Message):
         return await msg.reply_text("Metadata titles are not set. Please set metadata titles using `/setmetadata video_title audio_title subtitle_title`.")
 
     reply = msg.reply_to_message
-    if not reply:
-        return await msg.reply_text("Please reply to a media file with the change command\nFormat: `/changeleech a-2 -m -n filename.mkv`")
+    download_link = None
+
+    # Check if the command contains a download link as the last argument
+    if len(msg.command) > 5 and msg.command[-1].startswith("http"):
+        download_link = msg.command[-1]
+
+    if not reply and not download_link:
+        return await msg.reply_text("Please reply to a media file or provide a direct download link with the change command\nFormat: `/changeleech a-2 -m -n filename.mkv <optional: download link>`")
 
     if len(msg.command) < 5 or '-m' not in msg.command or '-n' not in msg.command:
-        return await msg.reply_text("Please provide the correct format\nFormat: `/changeleech a-2 -m -n filename.mkv`")
+        return await msg.reply_text("Please provide the correct format\nFormat: `/changeleech a-2 -m -n filename.mkv <optional: download link>`")
 
     index_cmd = msg.command[1]
     metadata_flag_index = msg.command.index('-m')
     output_flag_index = msg.command.index('-n')
     output_filename = " ".join(msg.command[output_flag_index + 1:]).strip()
+    if download_link:
+        output_filename = " ".join(msg.command[output_flag_index + 1:-1]).strip()
 
     if not output_filename.lower().endswith(('.mkv', '.mp4', '.avi')):
         return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
 
     media = reply.document or reply.audio or reply.video
-    if not media:
-        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the change command.")
+    if not media and not download_link:
+        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) or provide a direct download link with the change command.")
 
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
 
-    downloaded = None
-    intermediate_file = None
-    output_file = None
-    file_thumb = None
-
     try:
-        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
-        if not downloaded:
-            await safe_edit_message(sts, "❗ Error: Failed to download media.")
-            return
-
-        # Output file path (temporary file)
-        intermediate_file = os.path.splitext(downloaded)[0] + "_indexed" + os.path.splitext(downloaded)[1]
-        output_file = output_filename
-
-        index_params = index_cmd.split('-')
-        stream_type = index_params[0]
-        indexes = [int(i) - 1 for i in index_params[1:]]
-
-        # Construct the FFmpeg command to modify indexes
-        ffmpeg_cmd = ['ffmpeg', '-i', downloaded, '-map', '0:v']  # Always map video stream
-
-        for idx in indexes:
-            ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
-
-        # Copy all subtitle streams if they exist
-        ffmpeg_cmd.extend(['-map', '0:s?'])
-
-        ffmpeg_cmd.extend(['-c', 'copy', intermediate_file, '-y'])
-
-        await safe_edit_message(sts, "💠 Changing audio indexing... ⚡")
-        process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await process.communicate()
-
-        # Log FFmpeg output for debugging
-        print("FFmpeg Output:", stdout.decode('utf-8'))
-        print("FFmpeg Error:", stderr.decode('utf-8'))
-
-        if process.returncode != 0:
-            await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
-            os.remove(downloaded)
-            if os.path.exists(intermediate_file):
-                os.remove(intermediate_file)
-            return
-
-        await safe_edit_message(sts, "💠 Changing metadata... ⚡")
-        try:
-            change_video_metadata(intermediate_file, video_title, audio_title, subtitle_title, output_file)
-        except Exception as e:
-            await safe_edit_message(sts, f"Error changing metadata: {e}")
-            os.remove(downloaded)
-            os.remove(intermediate_file)
-            return
-
-        # Retrieve thumbnail from the database
-        thumbnail_file_id = await db.get_thumbnail(user_id)
-        if thumbnail_file_id:
-            try:
-                file_thumb = await bot.download_media(thumbnail_file_id)
-            except Exception:
-                pass
+        if media:
+            downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
         else:
-            if hasattr(media, 'thumbs') and media.thumbs:
-                try:
-                    file_thumb = await bot.download_media(media.thumbs[0].file_id)
-                except Exception:
-                    file_thumb = None
-
-        filesize = os.path.getsize(output_file)
-        filesize_human = humanbytes(filesize)
-        cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
-
-        await safe_edit_message(sts, "💠 Uploading... ⚡")
-        c_time = time.time()
-
-        if filesize > FILE_SIZE_LIMIT:
-            file_link = await upload_to_google_drive(output_file, output_filename, sts)
-            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
-            await msg.reply_text(
-                f"**File successfully changed audio index and metadata, then uploaded to Google Drive!**\n\n"
-                f"**Google Drive Link**: [View File]({file_link})\n\n"
-                f"**Uploaded File**: {output_filename}\n"
-                f"**Request User:** {msg.from_user.mention}\n\n"
-                f"**Size**: {filesize_human}",
-                reply_markup=InlineKeyboardMarkup(button)
-            )
-        else:
-            try:
-                await bot.send_document(
-                    msg.chat.id,
-                    document=output_file,
-                    file_name=output_filename,
-                    thumb=file_thumb,
-                    caption=cap,
-                    progress=progress_message,
-                    progress_args=("💠 Upload Started... ⚡", sts, c_time)
-                )
-            except Exception as e:
-                await safe_edit_message(sts, f"Error: {e}")
-
+            downloaded = await download_media_from_link(download_link, sts)  # Custom function to handle link downloads
     except Exception as e:
-        await safe_edit_message(sts, f"General Error: {e}")
+        await safe_edit_message(sts, f"Error downloading media: {e}")
+        return
 
-    finally:
-        # Clean up temporary files
-        if downloaded and os.path.exists(downloaded):
-            os.remove(downloaded)
-        if intermediate_file and os.path.exists(intermediate_file):
+    # Output file path (temporary file)
+    intermediate_file = os.path.splitext(downloaded)[0] + "_indexed" + os.path.splitext(downloaded)[1]
+
+    index_params = index_cmd.split('-')
+    stream_type = index_params[0]
+    indexes = [int(i) - 1 for i in index_params[1:]]
+
+    # Construct the FFmpeg command to modify indexes
+    ffmpeg_cmd = ['ffmpeg', '-i', downloaded, '-map', '0:v']  # Always map video stream
+
+    for idx in indexes:
+        ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
+
+    # Copy all subtitle streams if they exist
+    ffmpeg_cmd.extend(['-map', '0:s?'])
+
+    ffmpeg_cmd.extend(['-c', 'copy', intermediate_file, '-y'])
+
+    await safe_edit_message(sts, "💠 Changing audio indexing... ⚡")
+    process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
+        os.remove(downloaded)
+        if os.path.exists(intermediate_file):
             os.remove(intermediate_file)
-        if output_file and os.path.exists(output_file):
-            os.remove(output_file)
-        if file_thumb and os.path.exists(file_thumb):
-            os.remove(file_thumb)
-        if sts:
-            await sts.delete()
+        return
+
+    output_file = output_filename
+
+    await safe_edit_message(sts, "💠 Changing metadata... ⚡")
+    try:
+        change_video_metadata(intermediate_file, video_title, audio_title, subtitle_title, output_file)
+    except Exception as e:
+        await safe_edit_message(sts, f"Error changing metadata: {e}")
+        os.remove(downloaded)
+        os.remove(intermediate_file)
+        return
+
+    # Retrieve thumbnail from the database
+    thumbnail_file_id = await db.get_thumbnail(user_id)
+    file_thumb = None
+    if thumbnail_file_id:
+        try:
+            file_thumb = await bot.download_media(thumbnail_file_id)
+        except Exception:
+            pass
+    else:
+        if hasattr(media, 'thumbs') and media.thumbs:
+            try:
+                file_thumb = await bot.download_media(media.thumbs[0].file_id)
+            except Exception as e:
+                file_thumb = None
+
+    filesize = os.path.getsize(output_file)
+    filesize_human = humanbytes(filesize)
+    cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
+
+    await safe_edit_message(sts, "💠 Uploading... ⚡")
+    c_time = time.time()
+
+    if filesize > FILE_SIZE_LIMIT:
+        file_link = await upload_to_google_drive(output_file, output_filename, sts)  # Custom function to handle Google Drive uploads
+        button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+        await msg.reply_text(
+            f"**File successfully changed audio index and metadata, then uploaded to Google Drive!**\n\n"
+            f"**Google Drive Link**: [View File]({file_link})\n\n"
+            f"**Uploaded File**: {output_filename}\n"
+            f"**Request User:** {msg.from_user.mention}\n\n"
+            f"**Size**: {filesize_human}",
+            reply_markup=InlineKeyboardMarkup(button)
+        )
+    else:
+        try:
+            await bot.send_document(
+                msg.chat.id,
+                document=output_file,
+                file_name=output_filename,
+                thumb=file_thumb,
+                caption=cap,
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+            )
+        except Exception as e:
+            return await safe_edit_message(sts, f"Error: {e}")
+
+    os.remove(downloaded)
+    os.remove(intermediate_file)
+    os.remove(output_file)
+    if file_thumb and os.path.exists(file_thumb):
+        os.remove(file_thumb)
+    await sts.delete()
+
+
+
+# Utility function to edit messages safely
+async def safe_edit_message(message, text):
+    try:
+        await message.edit_text(text)
+    except:
+        pass
+
 
 
 
