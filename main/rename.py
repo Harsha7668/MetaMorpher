@@ -2936,7 +2936,6 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
     await sts.delete()
 
-
 @Client.on_message(filters.command("change_leech") & filters.chat(GROUP))
 async def change_leech(bot, msg: Message):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
@@ -2977,6 +2976,11 @@ async def change_leech(bot, msg: Message):
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
 
+    downloaded = None
+    intermediate_file = None
+    output_file = None
+    file_thumb = None
+
     try:
         if reply.text and ("seedr" in reply.text or "workers" in reply.text):
             await handle_link_download(bot, msg, reply.text, output_filename, media, sts, c_time)
@@ -3007,9 +3011,6 @@ async def change_leech(bot, msg: Message):
 
             if process.returncode != 0:
                 await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
-                os.remove(downloaded)
-                if os.path.exists(intermediate_file):
-                    os.remove(intermediate_file)
                 return
 
             output_file = output_filename
@@ -3019,13 +3020,10 @@ async def change_leech(bot, msg: Message):
                 change_video_metadata(intermediate_file, video_title, audio_title, subtitle_title, output_file)
             except Exception as e:
                 await safe_edit_message(sts, f"Error changing metadata: {e}")
-                os.remove(downloaded)
-                os.remove(intermediate_file)
                 return
 
             # Retrieve thumbnail from the database
             thumbnail_file_id = await db.get_thumbnail(user_id)
-            file_thumb = None
             if thumbnail_file_id:
                 try:
                     file_thumb = await bot.download_media(thumbnail_file_id)
@@ -3075,15 +3073,16 @@ async def change_leech(bot, msg: Message):
 
     finally:
         # Clean up temporary files
-        if os.path.exists(downloaded):
+        if downloaded and os.path.exists(downloaded):
             os.remove(downloaded)
-        if os.path.exists(intermediate_file):
+        if intermediate_file and os.path.exists(intermediate_file):
             os.remove(intermediate_file)
-        if os.path.exists(output_file):
+        if output_file and os.path.exists(output_file):
             os.remove(output_file)
         if file_thumb and os.path.exists(file_thumb):
             os.remove(file_thumb)
-        await sts.delete()
+        if sts:
+            await sts.delete()
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
