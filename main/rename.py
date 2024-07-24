@@ -2736,7 +2736,7 @@ def compress_video(input_path, output_path):
     if process.returncode != 0:
         raise Exception(f"FFmpeg error: {stderr.decode('utf-8')}")
 
-@Client.on_message(filters.command("changemetadataindex") & filters.chat(GROUP))
+@Client.on_message(filters.command("change") & filters.chat(GROUP))
 async def change_metadata_and_index(bot, msg: Message):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
 
@@ -2744,7 +2744,7 @@ async def change_metadata_and_index(bot, msg: Message):
         return await msg.reply_text("Both metadata changing and audio index features are currently disabled.")
 
     user_id = msg.from_user.id
-   
+
     # Fetch metadata titles from the database
     metadata_titles = await db.get_metadata_titles(user_id)
     video_title = metadata_titles.get('video_title', '')
@@ -2756,10 +2756,10 @@ async def change_metadata_and_index(bot, msg: Message):
 
     reply = msg.reply_to_message
     if not reply:
-        return await msg.reply_text("Please reply to a media file with the metadata command\nFormat: `changemetadata -n filename.mkv` or `changemetadata a-3 -n filename.mkv`")
+        return await msg.reply_text("Please reply to a media file with the command\nFormat: `change -n filename.mkv` or `change a-3 -n filename.mkv`")
 
     if len(msg.command) < 3:
-        return await msg.reply_text("Please provide the necessary flags and filename\nFormat: `changemetadata -n filename.mkv` or `changemetadata a-3 -n filename.mkv`")
+        return await msg.reply_text("Please provide the necessary flags and filename\nFormat: `change -n filename.mkv` or `change a-3 -n filename.mkv`")
 
     index_cmd = None
     output_filename = None
@@ -2875,7 +2875,6 @@ async def change_metadata_and_index(bot, msg: Message):
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
-
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
