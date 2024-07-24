@@ -2936,7 +2936,7 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
     await sts.delete()
 
-@Client.on_message(filters.command("change_leech") & filters.chat(GROUP))
+@Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
 async def change_leech(bot, msg: Message):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
 
@@ -2986,9 +2986,13 @@ async def change_leech(bot, msg: Message):
             await handle_link_download(bot, msg, reply.text, output_filename, media, sts, c_time)
         else:
             downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+            if not downloaded:
+                await safe_edit_message(sts, "❗ Error: Failed to download media.")
+                return
 
             # Output file path (temporary file)
             intermediate_file = os.path.splitext(downloaded)[0] + "_indexed" + os.path.splitext(downloaded)[1]
+            output_file = output_filename
 
             index_params = index_cmd.split('-')
             stream_type = index_params[0]
@@ -3009,11 +3013,13 @@ async def change_leech(bot, msg: Message):
             process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             stdout, stderr = await process.communicate()
 
+            # Log FFmpeg output for debugging
+            print("FFmpeg Output:", stdout.decode('utf-8'))
+            print("FFmpeg Error:", stderr.decode('utf-8'))
+
             if process.returncode != 0:
                 await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
                 return
-
-            output_file = output_filename
 
             await safe_edit_message(sts, "💠 Changing metadata... ⚡")
             try:
