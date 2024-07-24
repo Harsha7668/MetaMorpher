@@ -2751,9 +2751,6 @@ async def change_metadata_and_index(bot, msg: Message):
     audio_title = metadata_titles.get('audio_title', '')
     subtitle_title = metadata_titles.get('subtitle_title', '')
 
-    if not any([video_title, audio_title, subtitle_title]):
-        return await msg.reply_text("Metadata titles are not set. Please set metadata titles using `/setmetadata video_title audio_title subtitle_title`.")
-
     reply = msg.reply_to_message
     if not reply:
         return await msg.reply_text("Please reply to a media file with the command\nFormat: `change -n filename.mkv` or `change a-3 -n filename.mkv`")
@@ -2790,6 +2787,7 @@ async def change_metadata_and_index(bot, msg: Message):
         await safe_edit_message(sts, f"Error downloading media: {e}")
         return
 
+    temp_file = os.path.splitext(downloaded)[0] + "_temp" + os.path.splitext(downloaded)[1]
     output_file = output_filename
 
     # Check if it's a metadata change or an audio index change
@@ -2808,7 +2806,7 @@ async def change_metadata_and_index(bot, msg: Message):
         # Copy all subtitle streams if they exist
         ffmpeg_cmd.extend(['-map', '0:s?'])
 
-        ffmpeg_cmd.extend(['-c', 'copy', output_file, '-y'])
+        ffmpeg_cmd.extend(['-c', 'copy', temp_file, '-y'])
 
         await safe_edit_message(sts, "💠 Changing audio indexing... ⚡")
         process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -2817,12 +2815,22 @@ async def change_metadata_and_index(bot, msg: Message):
         if process.returncode != 0:
             await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
             os.remove(downloaded)
-            if os.path.exists(output_file):
-                os.remove(output_file)
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
             return
 
+        # Metadata change on the new temp file
+        if METADATA_ENABLED:
+            await safe_edit_message(sts, "💠 Changing metadata... ⚡")
+            try:
+                change_video_metadata(temp_file, video_title, audio_title, subtitle_title, output_file)
+            except Exception as e:
+                await safe_edit_message(sts, f"Error changing metadata: {e}")
+                os.remove(downloaded)
+                os.remove(temp_file)
+                return
     elif METADATA_ENABLED:
-        # Handle metadata change
+        # Handle metadata change directly
         await safe_edit_message(sts, "💠 Changing metadata... ⚡")
         try:
             change_video_metadata(downloaded, video_title, audio_title, subtitle_title, output_file)
@@ -2871,10 +2879,14 @@ async def change_metadata_and_index(bot, msg: Message):
             return await safe_edit_message(sts, f"Error: {e}")
 
     os.remove(downloaded)
+    if os.path.exists(temp_file):
+        os.remove(temp_file)
     os.remove(output_file)
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
+
+
 
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
