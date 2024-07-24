@@ -2877,7 +2877,7 @@ async def change(bot, msg: Message):
         os.remove(file_thumb)
     await sts.delete()
 
-
+"""
  
 @Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
 async def changeleech(bot, msg: Message):
@@ -3010,7 +3010,155 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
     except Exception as e:
         print(f"Error deleting files: {e}")
 
-    await sts.delete()
+    await sts.delete()"""
+
+
+from pyrogram.errors import MessageIdInvalid
+
+@Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
+async def changeleech(bot, msg: Message):
+    if len(msg.command) < 2 or not msg.reply_to_message:
+        return await msg.reply_text("Please reply to a file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
+
+    reply = msg.reply_to_message
+    new_name = msg.text.split(" ", 1)[1]
+
+    if not new_name.endswith((".mkv", ".mp4", ".zip")):
+        return await msg.reply_text("Please specify a filename ending with .mkv, .mp4, or .zip.")
+
+    media = reply.document or reply.audio or reply.video or reply.text
+
+    sts = await msg.reply_text("🚀 Downloading... ⚡")
+    c_time = time.time()
+
+    if reply.text and ("seedr" in reply.text or "workers" in reply.text):
+        await handle_link_download(bot, msg, reply.text, new_name, media, sts, c_time)
+    else:
+        if not media:
+            return await msg.reply_text("Please reply to a valid file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
+
+        try:
+            downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+        except RPCError as e:
+            return await sts.edit(f"Download failed: {e}")
+
+        filesize = humanbytes(os.path.getsize(downloaded))
+
+        # Change indexing and metadata if required
+        if len(msg.command) > 2:
+            await change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, c_time)
+
+        # Thumbnail handling
+        thumbnail_file_id = await db.get_thumbnail(msg.from_user.id)
+        og_thumbnail = None
+        if thumbnail_file_id:
+            try:
+                og_thumbnail = await bot.download_media(thumbnail_file_id)
+            except Exception:
+                pass
+        else:
+            if hasattr(media, 'thumbs') and media.thumbs:
+                try:
+                    og_thumbnail = await bot.download_media(media.thumbs[0].file_id)
+                except Exception:
+                    pass
+
+        try:
+            await sts.edit("💠 Uploading... ⚡")
+        except MessageIdInvalid:
+            pass
+        c_time = time.time()
+
+        if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
+            file_link = await upload_to_google_drive(downloaded, new_name, sts)
+            await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+        else:
+            try:
+                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=f"{new_name}\n\n🌟 Size: {filesize}", progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+            except ValueError as e:
+                return await sts.edit(f"Upload failed: {e}")
+            except TimeoutError as e:
+                return await sts.edit(f"Upload timed out: {e}")
+
+        try:
+            if og_thumbnail:
+                os.remove(og_thumbnail)
+            os.remove(downloaded)
+        except Exception as e:
+            print(f"Error deleting files: {e}")
+
+        try:
+            await sts.delete()
+        except MessageIdInvalid:
+            pass
+
+async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time):
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(link) as resp:
+                if resp.status == 200:
+                    with open(new_name, 'wb') as f:
+                        f.write(await resp.read())
+                else:
+                    await sts.edit(f"Failed to download file from link. Status code: {resp.status}")
+                    return
+    except Exception as e:
+        await sts.edit(f"Error during download: {e}")
+        return
+
+    if not os.path.exists(new_name):
+        await sts.edit("File not found after download. Please check the link and try again.")
+        return
+
+    filesize = humanbytes(os.path.getsize(new_name))
+
+    # Change indexing and metadata if required
+    if len(msg.command) > 2:
+        await change_metadata_and_index(bot, msg, new_name, new_name, media, sts, c_time)
+
+    # Thumbnail handling
+    thumbnail_file_id = await db.get_thumbnail(msg.from_user.id)
+    og_thumbnail = None
+    if thumbnail_file_id:
+        try:
+            og_thumbnail = await bot.download_media(thumbnail_file_id)
+        except Exception:
+            pass
+    else:
+        if hasattr(media, 'thumbs') and media.thumbs:
+            try:
+                og_thumbnail = await bot.download_media(media.thumbs[0].file_id)
+            except Exception:
+                pass
+
+    try:
+        await sts.edit("💠 Uploading... ⚡")
+    except MessageIdInvalid:
+        pass
+    c_time = time.time()
+
+    if os.path.getsize(new_name) > FILE_SIZE_LIMIT:
+        file_link = await upload_to_google_drive(new_name, new_name, sts)
+        await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+    else:
+        try:
+            await bot.send_document(msg.chat.id, document=new_name, thumb=og_thumbnail, caption=f"{new_name}\n\n🌟 Size: {filesize}", progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+        except ValueError as e:
+            return await sts.edit(f"Upload failed: {e}")
+        except TimeoutError as e:
+            return await sts.edit(f"Upload timed out: {e}")
+
+    try:
+        if og_thumbnail:
+            os.remove(og_thumbnail)
+        os.remove(new_name)
+    except Exception as e:
+        print(f"Error deleting files: {e}")
+
+    try:
+        await sts.delete()
+    except MessageIdInvalid:
+        pass
 
 async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, c_time):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
