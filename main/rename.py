@@ -3012,11 +3012,20 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
     await sts.delete()"""
 
-from pyrogram import Client, filters
 from pyrogram.errors import RPCError
-import aiohttp
-import os
-import time
+
+async def safe_edit_message(sts, text):
+    try:
+        await sts.edit(text)
+    except RPCError as e:
+        if e.code == 400 and "MESSAGE_ID_INVALID" in str(e):
+            # Handle the specific case of invalid message ID
+            print("Failed to edit message: Invalid message ID.")
+        else:
+            # Handle other potential RPC errors
+            print(f"Failed to edit message: {e}")
+
+
 
 @Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
 async def changeleech(bot, msg: Message):
@@ -3044,6 +3053,9 @@ async def changeleech(bot, msg: Message):
             downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
         except RPCError as e:
             return await sts.edit(f"Download failed: {e}")
+
+        if not os.path.exists(downloaded):
+            return await sts.edit("File not found after download. Please check the reply and try again.")
 
         filesize = humanbytes(os.path.getsize(downloaded))
 
@@ -3074,16 +3086,17 @@ async def changeleech(bot, msg: Message):
             await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
         else:
             try:
-                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=f"{new_name}\n\n🌟 Size: {filesize}", progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
+                await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=new_name, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
             except ValueError as e:
                 return await sts.edit(f"Upload failed: {e}")
             except TimeoutError as e:
                 return await sts.edit(f"Upload timed out: {e}")
 
         try:
-            if og_thumbnail:
+            if og_thumbnail and os.path.exists(og_thumbnail):
                 os.remove(og_thumbnail)
-            os.remove(downloaded)
+            if os.path.exists(downloaded):
+                os.remove(downloaded)
         except Exception as e:
             print(f"Error deleting files: {e}")
 
@@ -3143,13 +3156,15 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
             return await sts.edit(f"Upload timed out: {e}")
 
     try:
-        if og_thumbnail:
+        if og_thumbnail and os.path.exists(og_thumbnail):
             os.remove(og_thumbnail)
-        os.remove(new_name)
+        if os.path.exists(new_name):
+            os.remove(new_name)
     except Exception as e:
         print(f"Error deleting files: {e}")
 
     await sts.delete()
+
 
 
 async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, c_time):
@@ -3277,6 +3292,8 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
+
+
 
 
 if __name__ == '__main__':
