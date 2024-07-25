@@ -3496,8 +3496,8 @@ import os
 import time
 
 # Define your bot
-@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
-async def gofile_upload(bot: Client, msg: Message):
+@Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
+async def gofile(bot: Client, msg: Message):
     user_id = msg.from_user.id
     
     # Retrieve the user's Gofile API key from the database
