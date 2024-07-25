@@ -3436,7 +3436,7 @@ from hurry.filesize import size
 import datetime
 
 # Define GROUP filter as per your requirements
-GROUP = 'your_group_id_or_filter'
+
 
 @Client.on_message(filters.command("gofilepost") & filters.chat(GROUP))
 async def gofile_upload(bot: Client, msg: Message):
