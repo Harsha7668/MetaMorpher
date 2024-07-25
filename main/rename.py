@@ -3486,6 +3486,7 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
 
 import subprocess
 import os
+import time
 
 @Client.on_message(filters.command("transfer") & filters.chat(GROUP))
 async def transfer_upload(bot, msg: Message):
@@ -3528,10 +3529,14 @@ async def transfer_upload(bot, msg: Message):
             url
         ]
 
+        # Execute the upload command
         result = subprocess.run(command_to_exec, capture_output=True, text=True)
+        
         if result.returncode != 0:
-            return await sts.edit(f"Upload failed: {result.stderr}")
+            await sts.edit(f"Upload failed: {result.stderr}")
+            return
 
+        # Extract the download link from the output
         response = result.stdout.strip()
         await sts.edit(f"Upload successful!\nDownload link: {response}")
 
@@ -3539,13 +3544,13 @@ async def transfer_upload(bot, msg: Message):
         await sts.edit(f"Error during upload: {e}")
 
     finally:
+        # Clean up the downloaded file
         try:
             if downloaded_file and os.path.exists(downloaded_file):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
-
-
+            
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
     app.run()
