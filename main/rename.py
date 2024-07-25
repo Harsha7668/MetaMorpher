@@ -52,7 +52,7 @@ REMOVETAGS_ENABLED = True
 CHANGE_INDEX_ENABLED = True 
 MERGE_ENABLED = True
 EXTRACT_ENABLED = True
-
+GOFILE_ENABLED = True
 
 
 
@@ -3313,10 +3313,13 @@ import aiohttp
 import os
 import time
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 
-@Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
-async def gofile(bot: Client, msg: Message):
+# Example of global settings
+EXTRACT_ENABLED = True  # Change as needed
+
+@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
+async def gofile_upload(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
     # Retrieve the user's Gofile API key from the database
@@ -3393,11 +3396,14 @@ async def gofile(bot: Client, msg: Message):
                     response = await resp.json()
                     if response["status"] == "ok":
                         download_url = response["data"]["downloadPage"]
-                        await sts.edit(f"Upload successful!\nDownload link: {download_url}")
+                        if GOFILE_ENABLED:
+                            # Post the metadata to the channel
+                            channel_message = f"{caption}\nDownload link: {download_url}"
+                            await bot.send_message(CHANNEL_ID, channel_message)
+                        else:
+                            # Send the result to the bot user
+                            await msg.reply_text(f"Upload successful!\nDownload link: {download_url}\n{caption}")
 
-                        # Post the metadata to the channel
-                        channel_message = f"{caption}\nDownload link: {download_url}"
-                        await bot.send_message(CHANNEL_ID, channel_message)
                     else:
                         await sts.edit(f"Upload failed: {response['message']}")
 
@@ -3440,7 +3446,6 @@ def extract_metadata_from_filename(file_name):
         language = "Unknown Language"
 
     return prefix, title, year, quality, language
-
 
             
 if __name__ == '__main__':
