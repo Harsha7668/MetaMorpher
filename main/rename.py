@@ -3487,6 +3487,7 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
 import subprocess
 import os
 import time
+import urllib.parse
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
@@ -3529,8 +3530,9 @@ async def transfer_upload(bot, msg: Message):
             progress_args=("🚀 Download Started...", sts, c_time)
         )
 
-        # Upload the file to Transfer.sh
-        url = f"https://transfer.sh/{file_name}"
+        # URL-encode the filename for the URL
+        encoded_file_name = urllib.parse.quote(file_name)
+        url = f"https://transfer.sh/{encoded_file_name}"
         command_to_exec = [
             "curl",
             "--upload-file", downloaded_file,
@@ -3565,7 +3567,7 @@ async def transfer_upload(bot, msg: Message):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
-
+            
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
     app.run()
