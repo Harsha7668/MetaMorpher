@@ -1904,11 +1904,12 @@ async def unzip(bot, msg):
     os.remove(input_path)
     shutil.rmtree(extract_path)
 
-  
+
+
 @Client.on_message(filters.command("gofile") & filters.chat(GROUP))
 async def gofile_upload(bot, msg: Message):
     user_id = msg.from_user.id
-    
+
     # Retrieve the user's Gofile API key from database
     gofile_api_key = await db.get_gofile_api_key(user_id)
 
@@ -1958,10 +1959,15 @@ async def gofile_upload(bot, msg: Message):
             with open(downloaded_file, "rb") as file:
                 form_data = aiohttp.FormData()
                 form_data.add_field("file", file, filename=file_name)
-                form_data.add_field("token", gofile_api_key)
+                if gofile_api_key:
+                    headers = {"Authorization": f"Bearer {gofile_api_key}"}
+                else:
+                    headers = {}
 
+                upload_url = f"https://{server}.gofile.io/uploadFile"
                 async with session.post(
-                    f"https://{server}.gofile.io/uploadFile",
+                    upload_url,
+                    headers=headers,
                     data=form_data
                 ) as resp:
                     if resp.status != 200:
