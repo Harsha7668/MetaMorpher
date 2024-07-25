@@ -368,14 +368,14 @@ async def inline_thumbnail_settings(client, callback_query: CallbackQuery):
 @Client.on_callback_query(filters.regex("delete_photo_post"))
 async def delete_photo_callback(client: Client, query: CallbackQuery):
     user_id = query.from_user.id
-    result = await photo_db.delete_photo(user_id)
+    result = await db.delete_photo(user_id)
     await query.message.edit_text(result)
 
 @Client.on_callback_query(filters.regex("preview_photo_post"))
 async def preview_photo_callback(client: Client, query: CallbackQuery):
     user_id = query.from_user.id
     
-    saved_photo = await photo_db.get_photo(user_id)
+    saved_photo = await db.get_photo(user_id)
 
     if saved_photo:
         await client.send_photo(query.message.chat.id, saved_photo, caption="Here is your saved photo.")
@@ -531,7 +531,7 @@ async def save_photo(bot: Client, msg: Message):
         return await msg.reply_text("Please reply to a photo to save.")
 
     photo = reply.photo
-    result = await photo_db.save_photo(user_id, photo.file_id)
+    result = await db.save_photo(user_id, photo.file_id)
     await msg.reply_text(result)
 
 
@@ -3395,7 +3395,7 @@ async def gofileChannelPost(bot: Client, msg: Message):
                         caption = f"📂 **Filename: {file_name}\n\n🖇️**Download Link**: {download_url}"
 
                         # Retrieve saved photo from the database
-                        photo_data = await photo_db.photo_col.find_one({"user_id": user_id})
+                        photo_data = await db.photo_col.find_one({"user_id": user_id})
                         if photo_data and "file_id" in photo_data:
                             saved_photo = photo_data["file_id"]
                             await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
