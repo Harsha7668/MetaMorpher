@@ -3396,11 +3396,14 @@ async def gofileChannelPost(bot: Client, msg: Message):
                         photo_data = await db.get_saved_photo(user_id)
                         if photo_data and "file_id" in photo_data:
                             saved_photo = photo_data["file_id"]
-                            await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
+                            try:
+                                await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
+                                await sts.edit(f"Upload successful!\nDownload link: {download_url}")
+                            except Exception as e:
+                                await sts.edit(f"Failed to send photo: {e}")
                         else:
                             await bot.send_message(CHANNEL_ID, caption)
-
-                        await sts.edit(f"Upload successful!\nDownload link: {download_url}")
+                            await sts.edit(f"Upload successful!\nDownload link: {download_url}")
                     else:
                         await sts.edit(f"Upload failed: {response['message']}")
 
@@ -3413,7 +3416,6 @@ async def gofileChannelPost(bot: Client, msg: Message):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
-
             
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
