@@ -1259,7 +1259,6 @@ async def merge_and_upload(bot, msg: Message):
 
         await sts.delete()
 """
-
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 import os
@@ -1279,25 +1278,34 @@ async def start_merge_command(bot, msg: Message):
 
     user_id = msg.from_user.id
     merge_state[user_id] = {
-        "video_audio": {
-            "video": None,
-            "audio": None,
-            "output_filename": None,
-            "is_merging": False
-        }
+        "video": {"files": [], "output_filename": None, "is_merging": False},
+        "audio": {"files": [], "output_filename": None, "is_merging": False},
+        "video_audio": {"files": [], "output_filename": None, "is_merging": False}
     }
 
-    await msg.reply_text("Send the video file first, then send the audio file. Once done, send `/videowithaudiomerge filename`.")
+    await msg.reply_text("Send up to 10 video files, then send `/videomerge filename` or `/videowithaudiomerge filename`.")
+
+@Client.on_message(filters.command("videomerge") & filters.chat(GROUP))
+async def start_video_merge_command(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id not in merge_state or not merge_state[user_id]["video"]["files"]:
+        return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
+
+    output_filename = msg.text.split(' ', 1)[1].strip()
+    merge_state[user_id]["video"]["output_filename"] = output_filename
+    merge_state[user_id]["video"]["is_merging"] = True
+
+    await merge_and_upload(bot, msg, merge_type="video")
 
 @Client.on_message(filters.command("videowithaudiomerge") & filters.chat(GROUP))
 async def start_video_with_audio_merge_command(bot, msg: Message):
     user_id = msg.from_user.id
-    if user_id not in merge_state or not merge_state[user_id]["video_audio"]["video"] or not merge_state[user_id]["video_audio"]["audio"]:
-        return await msg.reply_text("Please send both video and audio files first.")
+    if user_id not in merge_state or not merge_state[user_id]["video"]["files"] or not merge_state[user_id]["audio"]["files"]:
+        return await msg.reply_text("No files received for merging. Please send video and audio files using /merge command first.")
 
-    output_filename = msg.text.split(' ', 1)[1].strip()  # Extract output filename from command
+    output_filename = msg.text.split(' ', 1)[1].strip()
     merge_state[user_id]["video_audio"]["output_filename"] = output_filename
-    merge_state[user_id]["video_audio"]["is_merging"] = True  # Set the flag to indicate that merging has started
+    merge_state[user_id]["video_audio"]["is_merging"] = True
 
     await merge_and_upload(bot, msg, merge_type="video_audio")
 
@@ -1305,50 +1313,65 @@ async def start_video_with_audio_merge_command(bot, msg: Message):
 async def handle_media_files(bot, msg: Message):
     user_id = msg.from_user.id
     if user_id in merge_state:
-        media_type = "video" if msg.video or msg.document.mime_type.startswith("video") else "audio"
-        
-        if merge_state[user_id]["video_audio"].get("is_merging"):
+        if msg.video or (msg.document.mime_type.startswith("video") if msg.document else False):
+            media_type = "video"
+        elif msg.audio:
+            media_type = "audio"
+        else:
+            return
+
+        if merge_state[user_id].get("video")["is_merging"] or merge_state[user_id].get("audio")["is_merging"]:
             await msg.reply_text("Merging process has started. No more files can be added.")
             return
 
         if media_type == "video":
-            if merge_state[user_id]["video_audio"]["video"] is None:
-                merge_state[user_id]["video_audio"]["video"] = msg
-                await msg.reply_text("Video file received. Send the audio file next.")
+            if len(merge_state[user_id]["video"]["files"]) < 10:
+                merge_state[user_id]["video"]["files"].append(msg)
+                merge_state[user_id]["video_audio"]["files"].append(msg)
+                await msg.reply_text(f"Video file received. Send another file or use `/videomerge filename` or `/videowithaudiomerge filename` to start merging.")
             else:
-                await msg.reply_text("Video file already received. Send the audio file now.")
+                await msg.reply_text("You have already sent 10 video files. Use `/videomerge filename` or `/videowithaudiomerge filename` to start merging.")
         elif media_type == "audio":
-            if merge_state[user_id]["video_audio"]["audio"] is None:
-                merge_state[user_id]["video_audio"]["audio"] = msg
-                await msg.reply_text("Audio file received. Use `/videowithaudiomerge filename` to start merging.")
+            if len(merge_state[user_id]["audio"]["files"]) < 10:
+                merge_state[user_id]["audio"]["files"].append(msg)
+                merge_state[user_id]["video_audio"]["files"].append(msg)
+                await msg.reply_text(f"Audio file received. Send another file or use `/audiomerge filename` or `/videowithaudiomerge filename` to start merging.")
             else:
-                await msg.reply_text("Audio file already received. Use `/videowithaudiomerge filename` to start merging.")
+                await msg.reply_text("You have already sent 10 audio files. Use `/audiomerge filename` or `/videowithaudiomerge filename` to start merging.")
 
-async def merge_and_upload(bot, msg: Message, merge_type="video_audio"):
+async def merge_and_upload(bot, msg: Message, merge_type="video"):
     user_id = msg.from_user.id
     if user_id not in merge_state:
         return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
 
-    video_msg = merge_state[user_id][merge_type]["video"]
-    audio_msg = merge_state[user_id][merge_type]["audio"]
-    output_filename = merge_state[user_id][merge_type].get("output_filename", "merged_output.mp4")
+    files_to_merge = merge_state[user_id][merge_type]["files"]
+    output_filename = merge_state[user_id][merge_type].get("output_filename", f"merged_output.{merge_type}")
     output_path = f"{output_filename}"
 
     sts = await msg.reply_text("🚀 Starting merge process...")
 
     try:
         file_paths = []
-        for media_msg in [video_msg, audio_msg]:
-            file_path = await download_media(media_msg, sts)
+        for file_msg in files_to_merge:
+            file_path = await download_media(file_msg, sts)
             file_paths.append(file_path)
+
+        if merge_type == "video_audio" and file_paths[0].endswith(".mp4"):
+            first_video = file_paths.pop(0)
+            await sts.edit("First video file excluded from the merge.")
+        else:
+            first_video = None
 
         input_file = "input.txt"
         with open(input_file, "w") as f:
             for file_path in file_paths:
                 f.write(f"file '{file_path}'\n")
 
-        await sts.edit(f"💠 Merging {merge_type}... ⚡")
-        await merge_video_and_audio(input_file, output_path)
+        await sts.edit(f"💠 Merging {merge_type}s... ⚡")
+        if merge_type == "video":
+            await merge_videos(input_file, output_path)        
+        elif merge_type == "video_audio":
+            await merge_video_and_audio(file_paths[0], file_paths[1], output_path)
 
         filesize = os.path.getsize(output_path)
         filesize_human = humanbytes(filesize)
@@ -1391,7 +1414,7 @@ async def merge_and_upload(bot, msg: Message, merge_type="video_audio"):
             await msg.reply_text(
                 f"┏📥 **File Name:** {output_filename}\n"
                 f"┠💾 **Size:** {filesize_human}\n"
-                f"┠♻️ **Mode:** Merge : Video + Audio\n"
+                f"┠♻️ **Mode:** Merge : {merge_type.capitalize()} + {merge_type.capitalize()}\n"
                 f"┗🚹 **Request User:** {msg.from_user.mention}\n\n"
                 f"❄ **File has been sent in Bot PM!**"
             )
@@ -1416,33 +1439,26 @@ async def merge_and_upload(bot, msg: Message, merge_type="video_audio"):
             del merge_state[user_id]
 
         await sts.delete()
-        
+
 async def merge_videos(input_file, output_file):
-    file_generator_command = [
+    command = [
         "ffmpeg",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        input_file,
-        "-c",
-        "copy",
-        "-map",
-        "0",
-        output_file,
+        "-f", "concat",
+        "-safe", "0",
+        "-i", input_file,
+        "-c", "copy",
+        "-map", "0",
+        output_file
     ]
     try:
         process = await asyncio.create_subprocess_exec(
-            *file_generator_command,
+            *command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await process.communicate()
-
+        stdout, stderr = await process.communicate()
         if process.returncode != 0:
-            raise Exception(f"FFmpeg process returned error: {stderr.decode()}")
-
+            raise Exception(f"FFmpeg error: {stderr.decode()}")
     except Exception as e:
         raise RuntimeError(f"Error merging videos: {e}")
 
