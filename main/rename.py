@@ -3487,6 +3487,14 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
 import subprocess
 import os
 import time
+from pyrogram import Client, filters
+from pyrogram.types import Message
+
+MAX_MESSAGE_LENGTH = 4096
+
+def split_message(message):
+    """Split the message into parts if it's too long."""
+    return [message[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(message), MAX_MESSAGE_LENGTH)]
 
 @Client.on_message(filters.command("transfer") & filters.chat(GROUP))
 async def transfer_upload(bot, msg: Message):
@@ -3525,12 +3533,12 @@ async def transfer_upload(bot, msg: Message):
         url = f"https://transfer.sh/{file_name}"
         command_to_exec = [
             "curl",
-            "--upload-file", downloaded_file,
+            "--upload-file", f'"{downloaded_file}"',  # Ensure the filename is quoted
             url
         ]
 
-        # Execute the upload command
-        result = subprocess.run(command_to_exec, capture_output=True, text=True)
+        # Use shell=True and escape the file name
+        result = subprocess.run(" ".join(command_to_exec), shell=True, capture_output=True, text=True)
         
         if result.returncode != 0:
             await sts.edit(f"Upload failed: {result.stderr}")
@@ -3538,7 +3546,14 @@ async def transfer_upload(bot, msg: Message):
 
         # Extract the download link from the output
         response = result.stdout.strip()
-        await sts.edit(f"Upload successful!\nDownload link: {response}")
+        
+        # Split long messages
+        message_parts = split_message(response)
+        for part in message_parts:
+            await bot.send_message(
+                chat_id=msg.chat.id,
+                text=f"Upload successful!\nDownload link: {part}"
+            )
 
     except Exception as e:
         await sts.edit(f"Error during upload: {e}")
@@ -3550,7 +3565,9 @@ async def transfer_upload(bot, msg: Message):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
-            
+
+
+
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
     app.run()
