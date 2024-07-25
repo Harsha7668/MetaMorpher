@@ -3308,25 +3308,19 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
 
 CHANNEL_ID = -1002038048493
 
-import re
 import aiohttp
 import os
 import time
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
-import re
-import aiohttp
-import os
-import time
-from pyrogram import Client, filters
-from pyrogram.types import Message
-
-CHANNEL_ID = -1002038048493
 
 
-@Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
-async def gofile(bot: Client, msg: Message):
+saved_photo = None
+
+@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
+async def gofile_upload(bot: Client, msg: Message):
+    global saved_photo
     user_id = msg.from_user.id
 
     # Retrieve the user's Gofile API key from the database
@@ -3391,10 +3385,16 @@ async def gofile(bot: Client, msg: Message):
                     if response["status"] == "ok":
                         download_url = response["data"]["downloadPage"]
 
-                        # Post the metadata to the channel
-                        channel_message = f"📂 Filename: {file_name}\nDownload link: {download_url}"
+                        # Prepare the caption
+                        caption = f"📂 **Filename**: {file_name}\n\n**Download link**: {download_url}"
 
-                        await bot.send_message(CHANNEL_ID, channel_message)
+                        # Post the photo with the caption to the channel
+                        if saved_photo:
+                            await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
+                            saved_photo = None  # Clear the saved photo after posting
+                        else:
+                            await bot.send_message(CHANNEL_ID, caption)
+
                         await sts.edit(f"Upload successful!\nDownload link: {download_url}")
                     else:
                         await sts.edit(f"Upload failed: {response['message']}")
@@ -3411,21 +3411,20 @@ async def gofile(bot: Client, msg: Message):
 
 @Client.on_message(filters.command("SavePhoto") & filters.chat(GROUP))
 async def save_photo(bot: Client, msg: Message):
+    global saved_photo
     reply = msg.reply_to_message
     if not reply or not reply.photo:
-        return await msg.reply_text("Please reply to a photo to save and post to the channel.")
+        return await msg.reply_text("Please reply to a photo to save.")
 
     photo = reply.photo
-    file_name = "photo.jpg"
 
-    sts = await msg.reply_text("🚀 Uploading photo...")
-    
     try:
-        # Send the photo with the original caption to the channel
-        await bot.send_photo(CHANNEL_ID, photo.file_id, caption=f"📂 Filename: {file_name}\n{reply.caption}")
-        await sts.edit("Photo saved and posted to the channel.")
+        # Save the photo file_id to a global variable
+        saved_photo = photo.file_id
+        await msg.reply_text("Photo saved successfully.")
     except Exception as e:
-        await sts.edit(f"Error posting photo: {e}")
+        await msg.reply_text(f"Error saving photo: {e}")
+
 
 
             
