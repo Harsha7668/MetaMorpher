@@ -1348,7 +1348,7 @@ async def merge_and_upload(bot, msg: Message, merge_type="video_audio"):
                 f.write(f"file '{file_path}'\n")
 
         await sts.edit(f"💠 Merging {merge_type}... ⚡")
-        await merge_videos_with_audio(input_file, output_path)
+        await merge_video_and_audio(input_file, output_path)
 
         filesize = os.path.getsize(output_path)
         filesize_human = humanbytes(filesize)
