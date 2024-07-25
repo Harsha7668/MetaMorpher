@@ -3315,12 +3315,13 @@ import time
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
+EXTRACT_ENABLED = True  # Change as needed
+CHANNEL_ID = "@your_channel_id"  # Replace with your channel ID
 
 @Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
 async def gofile(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
-    # Retrieve the user's Gofile API key from the database
     gofile_api_key = await db.get_gofile_api_key(user_id)
 
     if not gofile_api_key:
@@ -3333,27 +3334,23 @@ async def gofile(bot: Client, msg: Message):
     media = reply.document or reply.video
     file_name = media.file_name
 
-    # Extract metadata from the file name
     prefix, title, year, quality, language = extract_metadata_from_filename(file_name)
 
-    # Create a static caption
     caption = (
         f"📂Title: {title}\n"
         f"🗓 Year: ({year})\n"
         f"🔈 Audio: {language}\n"
         f"✅ Quality: {quality}\n"
-        f"⭐ IMDb: N/A\n"  # IMDb rating is not available
         f"📥 Uploaded By: @sunriseseditsoffical6\n"
     )
 
-    sts = await msg.reply_text("🚀 Upload to Gofile...")
+    sts = await msg.reply_text("🚀 Uploading to Gofile...")
     c_time = time.time()
-    
+
     downloaded_file = None
 
     try:
         async with aiohttp.ClientSession() as session:
-            # Get available servers
             async with session.get("https://api.gofile.io/servers") as resp:
                 if resp.status != 200:
                     return await sts.edit(f"Failed to get servers. Status code: {resp.status}")
@@ -3363,31 +3360,25 @@ async def gofile(bot: Client, msg: Message):
                 if not servers:
                     return await sts.edit("No servers available.")
                 
-                server_name = servers[0].get("name")  # Use the server name
+                server_name = servers[0].get("name")
                 if not server_name:
                     return await sts.edit("Server name is missing.")
                 
                 upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
 
-            # Download the media file
             downloaded_file = await bot.download_media(
                 media,
-                file_name=file_name,  # Use custom or original filename directly
+                file_name=file_name,
                 progress=progress_message,
-                progress_args=("🚀 Uploading Started...", sts, c_time)
+                progress_args=("🚀 Upload Started...", sts, c_time)
             )
 
-            # Upload the file to Gofile
             with open(downloaded_file, "rb") as file:
                 form_data = aiohttp.FormData()
                 form_data.add_field("file", file, filename=file_name)
                 headers = {"Authorization": f"Bearer {gofile_api_key}"} if gofile_api_key else {}
 
-                async with session.post(
-                    upload_url,
-                    headers=headers,
-                    data=form_data
-                ) as resp:
+                async with session.post(upload_url, headers=headers, data=form_data) as resp:
                     if resp.status != 200:
                         return await sts.edit(f"Upload failed: Status code {resp.status}")
 
@@ -3396,14 +3387,11 @@ async def gofile(bot: Client, msg: Message):
                         download_url = response["data"]["downloadPage"]
                         completion_message = f"Upload successful!\nDownload link: {download_url}"
 
-                        if GOFILE_ENABLED:
-                            # Post the metadata to the channel
+                        if EXTRACT_ENABLED:
                             channel_message = f"{caption}\nDownload link: {download_url}"
                             await bot.send_message(CHANNEL_ID, channel_message)
-                            # Inform the user
                             await msg.reply_text(f"The Movie is uploaded in the channel ✓\n{completion_message}")
                         else:
-                            # Send the result to the bot user
                             await msg.reply_text(f"{completion_message}\n{caption}")
 
                     else:
@@ -3413,17 +3401,18 @@ async def gofile(bot: Client, msg: Message):
         await sts.edit(f"Error during upload: {e}")
 
     finally:
-        try:
-            if downloaded_file and os.path.exists(downloaded_file):
-                os.remove(downloaded_file)
-        except Exception as e:
-            print(f"Error deleting file: {e}")
+        if downloaded_file:
+            try:
+                if os.path.exists(downloaded_file):
+                    os.remove(downloaded_file)
+            except Exception as e:
+                print(f"Error deleting file: {e}")
 
 def extract_metadata_from_filename(file_name):
-    
+    print(f"Processing file name: {file_name}")  # Debugging line
+
     prefix = file_name.split(' - ')[0].strip()
     
-    # Extract title and year
     title_year_match = re.search(r' - (.+?) \((\d{4})\)', file_name)
     if title_year_match:
         title = title_year_match.group(1).strip()
@@ -3431,24 +3420,26 @@ def extract_metadata_from_filename(file_name):
     else:
         title = "Unknown Title"
         year = "Unknown Year"
+    
+    print(f"Title: {title}, Year: {year}")  # Debugging line
 
-    # Extract quality
     quality_match = re.search(r'(\d{3,4}p)', file_name)
     if quality_match:
         quality = quality_match.group(1).strip()
     else:
         quality = "Unknown Quality"
+    
+    print(f"Quality: {quality}")  # Debugging line
 
-    # Extract language
     language_match = re.search(r'\[([^\]]+)\]', file_name)
     if language_match:
         language = language_match.group(1).strip()
     else:
         language = "Unknown Language"
+    
+    print(f"Language: {language}")  # Debugging line
 
     return prefix, title, year, quality, language
-
-
             
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
