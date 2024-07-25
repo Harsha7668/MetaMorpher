@@ -3573,6 +3573,103 @@ async def transfer_upload(bot, msg: Message):
         except Exception as e:
             print(f"Error deleting file: {e}")
 
+
+import aiohttp
+import os
+import time
+from pyrogram import Client, filters
+from pyrogram.types import Message
+
+@Client.on_message(filters.command("clonegofile") & filters.chat(GROUP))
+async def clone_gofile(bot, msg: Message):
+    user_id = msg.from_user.id
+
+    # Retrieve the user's Gofile API key from database
+    gofile_api_key = await db.get_gofile_api_key(user_id)
+
+    if not gofile_api_key:
+        return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
+
+    # Extract the Gofile link from the message
+    args = msg.text.split(" ")
+    if len(args) < 2:
+        return await msg.reply_text("Please provide a Gofile link to clone.")
+
+    gofile_link = args[1]
+
+    sts = await msg.reply_text("🚀 Cloning the Gofile link...")
+    c_time = time.time()
+
+    downloaded_file = None
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Download the file from the given Gofile link
+            async with session.get(gofile_link) as resp:
+                if resp.status != 200:
+                    return await sts.edit(f"Failed to download file from the link. Status code: {resp.status}")
+
+                file_name = gofile_link.split('/')[-1]  # Extract the file name from the link
+                file_path = os.path.join("/tmp", file_name)
+
+                with open(file_path, "wb") as file:
+                    file.write(await resp.read())
+
+            # Get the server to upload the file
+            async with session.get("https://api.gofile.io/getServer") as resp:
+                if resp.status != 200:
+                    return await sts.edit(f"Failed to get server. Status code: {resp.status}")
+
+                data = await resp.json()
+                server = data["data"]["server"]
+
+            # Upload the file to Gofile
+            with open(file_path, "rb") as file:
+                form_data = aiohttp.FormData()
+                form_data.add_field("file", file, filename=file_name)
+                form_data.add_field("token", gofile_api_key)
+
+                async with session.post(
+                    f"https://{server}.gofile.io/uploadFile",
+                    data=form_data
+                ) as resp:
+                    if resp.status != 200:
+                        return await sts.edit(f"Upload failed: Status code {resp.status}")
+
+                    response = await resp.json()
+                    if response["status"] == "ok":
+                        download_url = response["data"]["downloadPage"]
+                        watch_url = download_url  # Assume the watch URL is the same as the download URL for simplicity
+
+                        # Get the file size
+                        file_size = os.path.getsize(file_path) / (1024 * 1024)  # Size in MiB
+
+                        # Generate the custom message
+                        message_template = f"""
+Ivigo Mithrama Mi Links!
+
+📂 Fɪʟᴇ ɴᴀᴍᴇ : {file_name}
+
+📦 Fɪʟᴇ ꜱɪᴢᴇ : {file_size:.2f} MiB
+
+To DOWNLOAD : {download_url}
+
+🚸 Nᴏᴛᴇ : Mana Bot Nachithey Mi Friends Ki Kuda Share Cheyandi😇❤️
+"""
+                        await sts.edit(message_template)
+                    else:
+                        await sts.edit(f"Upload failed: {response['message']}")
+
+    except Exception as e:
+        await sts.edit(f"Error during cloning: {e}")
+
+    finally:
+        try:
+            if downloaded_file and os.path.exists(downloaded_file):
+                os.remove(downloaded_file)
+        except Exception as e:
+            print(f"Error deleting file: {e}")
+
             
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
