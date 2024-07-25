@@ -3322,8 +3322,11 @@ import time
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
-@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
-async def gofile_upload(bot: Client, msg: Message):
+CHANNEL_ID = -1002038048493
+
+
+@Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
+async def gofile(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
     # Retrieve the user's Gofile API key from the database
@@ -3338,19 +3341,6 @@ async def gofile_upload(bot: Client, msg: Message):
 
     media = reply.document or reply.video
     file_name = media.file_name
-
-    # Extract metadata from the file name
-    prefix, title, year, quality, language = extract_metadata_from_filename(file_name)
-
-    # Create a static caption
-    caption = (
-        f"📂Title: {title}\n"
-        f"🗓 Year: ({year})\n"
-        f"🔈 Audio: {language}\n"
-        f"✅ Quality: {quality}\n"
-        f"⭐ IMDb: N/A\n"  # IMDb rating is not available
-        f"📥 Uploaded By: @sunriseseditsoffical6\n"
-    )
 
     sts = await msg.reply_text("🚀 Uploading to Gofile...")
     c_time = time.time()
@@ -3402,7 +3392,8 @@ async def gofile_upload(bot: Client, msg: Message):
                         download_url = response["data"]["downloadPage"]
 
                         # Post the metadata to the channel
-                        channel_message = f"{caption}\nDownload link: {download_url}"
+                        channel_message = f"📂 Filename: {file_name}\nDownload link: {download_url}"
+
                         await bot.send_message(CHANNEL_ID, channel_message)
                         await sts.edit(f"Upload successful!\nDownload link: {download_url}")
                     else:
@@ -3418,46 +3409,25 @@ async def gofile_upload(bot: Client, msg: Message):
         except Exception as e:
             print(f"Error deleting file: {e}")
 
-def extract_metadata_from_filename(file_name):
-    # Example: @sunriseseditsoffical6 - Arcadian (2024) HQ HDRip 1080p - x264 - [Telugu] - AAC - ESub - Sunrises24.mkv
+@Client.on_message(filters.command("SavePhoto") & filters.chat(GROUP))
+async def save_photo(bot: Client, msg: Message):
+    reply = msg.reply_to_message
+    if not reply or not reply.photo:
+        return await msg.reply_text("Please reply to a photo to save and post to the channel.")
 
-    # Ensure the prefix starts with @
-    prefix_match = re.match(r'^@[\w]+', file_name)
-    prefix = prefix_match.group(0) if prefix_match else "Unknown Prefix"
+    photo = reply.photo
+    file_name = "photo.jpg"
+
+    sts = await msg.reply_text("🚀 Uploading photo...")
     
-    # Extract title and year
-    title_year_match = re.search(r' - (.+?) \((20\d{2})\)', file_name)
-    if title_year_match:
-        title = title_year_match.group(1).strip()
-        year = title_year_match.group(2).strip()
-    else:
-        title = "Unknown Title"
-        year = "Unknown Year"
+    try:
+        # Send the photo with the original caption to the channel
+        await bot.send_photo(CHANNEL_ID, photo.file_id, caption=f"📂 Filename: {file_name}\n{reply.caption}")
+        await sts.edit("Photo saved and posted to the channel.")
+    except Exception as e:
+        await sts.edit(f"Error posting photo: {e}")
 
-    # Extract quality
-    quality_match = re.search(r'(\d{3,4}p)', file_name)
-    if quality_match:
-        quality = quality_match.group(1).strip()
-    else:
-        quality = "Unknown Quality"
 
-    # Extract language
-    language_match = re.search(r'\[([^\]]+)\]', file_name)
-    if language_match:
-        language = language_match.group(1).strip()
-    else:
-        language = "Unknown Language"
-
-    # Debug prints
-    print(f"Prefix: {prefix}")
-    print(f"Title: {title}")
-    print(f"Year: {year}")
-    print(f"Quality: {quality}")
-    print(f"Language: {language}")
-
-    return prefix, title, year, quality, language
-
- 
             
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
