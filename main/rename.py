@@ -3313,7 +3313,7 @@ import aiohttp
 import os
 import time
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import Message
 
 
 @Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
@@ -3346,7 +3346,7 @@ async def gofile(bot: Client, msg: Message):
         f"📥 Uploaded By: @sunriseseditsoffical6\n"
     )
 
-    sts = await msg.reply_text("🚀 Uploading to Gofile...")
+    sts = await msg.reply_text("🚀 Upload to Gofile...")
     c_time = time.time()
     
     downloaded_file = None
@@ -3374,7 +3374,7 @@ async def gofile(bot: Client, msg: Message):
                 media,
                 file_name=file_name,  # Use custom or original filename directly
                 progress=progress_message,
-                progress_args=("🚀 Download Started...", sts, c_time)
+                progress_args=("🚀 Uploading Started...", sts, c_time)
             )
 
             # Upload the file to Gofile
@@ -3394,13 +3394,17 @@ async def gofile(bot: Client, msg: Message):
                     response = await resp.json()
                     if response["status"] == "ok":
                         download_url = response["data"]["downloadPage"]
+                        completion_message = f"Upload successful!\nDownload link: {download_url}"
+
                         if GOFILE_ENABLED:
                             # Post the metadata to the channel
                             channel_message = f"{caption}\nDownload link: {download_url}"
                             await bot.send_message(CHANNEL_ID, channel_message)
+                            # Inform the user
+                            await msg.reply_text(f"The Movie is uploaded in the channel ✓\n{completion_message}")
                         else:
                             # Send the result to the bot user
-                            await msg.reply_text(f"Upload successful!\nDownload link: {download_url}\n{caption}")
+                            await msg.reply_text(f"{completion_message}\n{caption}")
 
                     else:
                         await sts.edit(f"Upload failed: {response['message']}")
@@ -3416,26 +3420,34 @@ async def gofile(bot: Client, msg: Message):
             print(f"Error deleting file: {e}")
 
 def extract_metadata_from_filename(file_name):
-    # Example: @sunriseseditsoffical6 - Arcadian (2024) HQ HDRip 1080p - x264 - [Telugu] - AAC - ESub - Sunrises24.mkv
-
-    # Extract prefix
-    prefix_match = re.match(r'^(.+?) -', file_name)
-    prefix = prefix_match.group(1).strip() if prefix_match else "Unknown Prefix"
-
+    
+    prefix = file_name.split(' - ')[0].strip()
+    
     # Extract title and year
     title_year_match = re.search(r' - (.+?) \((\d{4})\)', file_name)
-    title = title_year_match.group(1).strip() if title_year_match else "Unknown Title"
-    year = title_year_match.group(2).strip() if title_year_match else "Unknown Year"
+    if title_year_match:
+        title = title_year_match.group(1).strip()
+        year = title_year_match.group(2).strip()
+    else:
+        title = "Unknown Title"
+        year = "Unknown Year"
 
     # Extract quality
     quality_match = re.search(r'(\d{3,4}p)', file_name)
-    quality = quality_match.group(1).strip() if quality_match else "Unknown Quality"
+    if quality_match:
+        quality = quality_match.group(1).strip()
+    else:
+        quality = "Unknown Quality"
 
     # Extract language
     language_match = re.search(r'\[([^\]]+)\]', file_name)
-    language = language_match.group(1).strip() if language_match else "Unknown Language"
+    if language_match:
+        language = language_match.group(1).strip()
+    else:
+        language = "Unknown Language"
 
     return prefix, title, year, quality, language
+
 
             
 if __name__ == '__main__':
