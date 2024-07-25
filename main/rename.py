@@ -3322,19 +3322,26 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
 
 
 
+import aiohttp
+import os
+import time
+from pyrogram import Client, filters
+from pyrogram.types import Message, CallbackQuery
+
 CHANNEL_ID = -1002038048493
 
 @Client.on_message(filters.command("gofilepost") & filters.chat(GROUP))
-async def gofileChannelPost(bot: Client, msg: Message):
+async def gofile_upload(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
     # Retrieve the user's Gofile API key from the database
     gofile_api_key = await db.get_gofile_api_key(user_id)
+
     if not gofile_api_key:
         return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
 
     reply = msg.reply_to_message
-    if not reply or not reply.document and not reply.video:
+    if not reply or not (reply.document or reply.video):
         return await msg.reply_text("Please reply to a file or video to upload to Gofile.")
 
     media = reply.document or reply.video
@@ -3368,7 +3375,7 @@ async def gofileChannelPost(bot: Client, msg: Message):
                 media,
                 file_name=file_name,  # Use custom or original filename directly
                 progress=progress_message,
-                progress_args=("🚀 Upload Started...", sts, c_time)
+                progress_args=("🚀 Download Started...", sts, c_time)
             )
 
             # Upload the file to Gofile
@@ -3390,20 +3397,16 @@ async def gofileChannelPost(bot: Client, msg: Message):
                         download_url = response["data"]["downloadPage"]
 
                         # Prepare the caption
-                        caption = f"📂 **Filename: {file_name}\n\n🖇️**Download Link**: {download_url}"
+                        caption = f"📂 Filename: {file_name}\nDownload link: {download_url}"
 
-                        # Retrieve saved photo from the database
-                        photo_data = await db.get_saved_photo(user_id)
-                        if photo_data and "file_id" in photo_data:
-                            saved_photo = photo_data["file_id"]
-                            try:
-                                await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
-                                await sts.edit(f"Upload successful!\nDownload link: {download_url}")
-                            except Exception as e:
-                                await sts.edit(f"Failed to send photo: {e}")
+                        # Retrieve the saved photo from the database
+                        saved_photo = await db.get_saved_photo(user_id)
+                        if saved_photo:
+                            await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
                         else:
                             await bot.send_message(CHANNEL_ID, caption)
-                            await sts.edit(f"Upload successful!\nDownload link: {download_url}")
+
+                        await sts.edit(f"Upload successful!\nDownload link: {download_url}")
                     else:
                         await sts.edit(f"Upload failed: {response['message']}")
 
@@ -3416,6 +3419,8 @@ async def gofileChannelPost(bot: Client, msg: Message):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
+
+
             
 if __name__ == '__main__':
     app = Client("my_bot", bot_token=BOT_TOKEN)
