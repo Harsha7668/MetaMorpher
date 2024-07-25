@@ -3484,7 +3484,66 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
         os.remove(file_thumb)
     await sts.delete()
 
+import subprocess
+import os
 
+@Client.on_message(filters.command("transfer") & filters.chat(GROUP))
+async def transfer_upload(bot, msg: Message):
+    user_id = msg.from_user.id
+    
+    reply = msg.reply_to_message
+    if not reply or not reply.document and not reply.video:
+        return await msg.reply_text("Please reply to a file or video to upload to Transfer.sh.")
+
+    media = reply.document or reply.video
+    custom_name = None
+
+    # Check if a custom name is provided
+    args = msg.text.split(" ", 1)
+    if len(args) == 2:
+        custom_name = args[1]
+
+    # Use custom name if available, otherwise use the file name
+    file_name = custom_name or media.file_name
+
+    sts = await msg.reply_text("🚀 Downloading and uploading to Transfer.sh...")
+    c_time = time.time()
+    
+    downloaded_file = None
+
+    try:
+        # Download the media file
+        downloaded_file = await bot.download_media(
+            media,
+            file_name=file_name,  # Use custom or original filename directly
+            progress=progress_message,
+            progress_args=("🚀 Download Started...", sts, c_time)
+        )
+
+        # Upload the file to Transfer.sh
+        url = f"https://transfer.sh/{file_name}"
+        command_to_exec = [
+            "curl",
+            "--upload-file", downloaded_file,
+            url
+        ]
+
+        result = subprocess.run(command_to_exec, capture_output=True, text=True)
+        if result.returncode != 0:
+            return await sts.edit(f"Upload failed: {result.stderr}")
+
+        response = result.stdout.strip()
+        await sts.edit(f"Upload successful!\nDownload link: {response}")
+
+    except Exception as e:
+        await sts.edit(f"Error during upload: {e}")
+
+    finally:
+        try:
+            if downloaded_file and os.path.exists(downloaded_file):
+                os.remove(downloaded_file)
+        except Exception as e:
+            print(f"Error deleting file: {e}")
 
 
 if __name__ == '__main__':
