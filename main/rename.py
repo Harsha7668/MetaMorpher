@@ -3315,11 +3315,9 @@ import time
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 
-# Example of global settings
-EXTRACT_ENABLED = True  # Change as needed
 
-@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
-async def gofile_upload(bot: Client, msg: Message):
+@Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
+async def gofile(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
     # Retrieve the user's Gofile API key from the database
@@ -3420,30 +3418,22 @@ async def gofile_upload(bot: Client, msg: Message):
 def extract_metadata_from_filename(file_name):
     # Example: @sunriseseditsoffical6 - Arcadian (2024) HQ HDRip 1080p - x264 - [Telugu] - AAC - ESub - Sunrises24.mkv
 
-    prefix = file_name.split(' - ')[0].strip()
-    
+    # Extract prefix
+    prefix_match = re.match(r'^(.+?) -', file_name)
+    prefix = prefix_match.group(1).strip() if prefix_match else "Unknown Prefix"
+
     # Extract title and year
     title_year_match = re.search(r' - (.+?) \((\d{4})\)', file_name)
-    if title_year_match:
-        title = title_year_match.group(1).strip()
-        year = title_year_match.group(2).strip()
-    else:
-        title = "Unknown Title"
-        year = "Unknown Year"
+    title = title_year_match.group(1).strip() if title_year_match else "Unknown Title"
+    year = title_year_match.group(2).strip() if title_year_match else "Unknown Year"
 
     # Extract quality
     quality_match = re.search(r'(\d{3,4}p)', file_name)
-    if quality_match:
-        quality = quality_match.group(1).strip()
-    else:
-        quality = "Unknown Quality"
+    quality = quality_match.group(1).strip() if quality_match else "Unknown Quality"
 
     # Extract language
     language_match = re.search(r'\[([^\]]+)\]', file_name)
-    if language_match:
-        language = language_match.group(1).strip()
-    else:
-        language = "Unknown Language"
+    language = language_match.group(1).strip() if language_match else "Unknown Language"
 
     return prefix, title, year, quality, language
 
