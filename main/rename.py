@@ -1126,7 +1126,7 @@ async def change_index_subtitle(bot, msg):
     await sts.delete()
 
 
-
+"""
 #merge command 
 # Command to start merging files
 # Command to start merging files
@@ -1258,7 +1258,197 @@ async def merge_and_upload(bot, msg: Message):
             del merge_state[user_id]
 
         await sts.delete()
+"""
 
+from pyrogram import Client, filters
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+import os
+import time
+import asyncio
+
+# Define global variables
+MERGE_ENABLED = True
+merge_state = {}
+FILE_SIZE_LIMIT = 2 * 1024 * 1024 * 1024  # 2GB
+
+@Client.on_message(filters.command("merge") & filters.chat(GROUP))
+async def start_merge_command(bot, msg: Message):
+    global MERGE_ENABLED
+    if not MERGE_ENABLED:
+        return await msg.reply_text("The merge feature is currently disabled.")
+
+    user_id = msg.from_user.id
+    merge_state[user_id] = {"video": {"files": [], "output_filename": None, "is_merging": False},
+                            "audio": {"files": [], "output_filename": None, "is_merging": False}}
+
+    await msg.reply_text("Send up to 10 video/audio files one by one. Once done, send `/videomerge filename` or `/audiomerge filename`.")
+
+@Client.on_message(filters.command("videomerge") & filters.chat(GROUP))
+async def start_video_merge_command(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id not in merge_state or not merge_state[user_id]["video"]["files"]:
+        return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
+
+    output_filename = msg.text.split(' ', 1)[1].strip()  # Extract output filename from command
+    merge_state[user_id]["video"]["output_filename"] = output_filename
+    merge_state[user_id]["video"]["is_merging"] = True  # Set the flag to indicate that merging has started
+
+    await merge_and_upload(bot, msg, merge_type="video")
+
+@Client.on_message(filters.command("audiomerge") & filters.chat(GROUP))
+async def start_audio_merge_command(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id not in merge_state or not merge_state[user_id]["audio"]["files"]:
+        return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
+
+    output_filename = msg.text.split(' ', 1)[1].strip()  # Extract output filename from command
+    merge_state[user_id]["audio"]["output_filename"] = output_filename
+    merge_state[user_id]["audio"]["is_merging"] = True  # Set the flag to indicate that merging has started
+
+    await merge_and_upload(bot, msg, merge_type="audio")
+
+@Client.on_message(filters.document | filters.video | filters.audio & filters.chat(GROUP))
+async def handle_media_files(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id in merge_state:
+        media_type = "video" if msg.video or msg.document.mime_type.startswith("video") else "audio"
+        
+        if merge_state[user_id][media_type].get("is_merging"):
+            await msg.reply_text(f"Merging process has started. No more {media_type} files can be added.")
+            return
+        
+        if len(merge_state[user_id][media_type]["files"]) < 10:
+            merge_state[user_id][media_type]["files"].append(msg)
+            await msg.reply_text(f"{media_type.capitalize()} file received. Send another file or use `/videomerge filename` or `/audiomerge filename` to start merging.")
+        else:
+            await msg.reply_text(f"You have already sent 10 {media_type} files. Use `/videomerge filename` or `/audiomerge filename` to start merging.")
+
+async def merge_and_upload(bot, msg: Message, merge_type="video"):
+    user_id = msg.from_user.id
+    if user_id not in merge_state:
+        return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
+
+    files_to_merge = merge_state[user_id][merge_type]["files"]
+    output_filename = merge_state[user_id][merge_type].get("output_filename", f"merged_output.{merge_type}")
+    output_path = f"{output_filename}"
+
+    sts = await msg.reply_text("🚀 Starting merge process...")
+
+    try:
+        file_paths = []
+        for file_msg in files_to_merge:
+            file_path = await download_media(file_msg, sts)
+            file_paths.append(file_path)
+
+        input_file = "input.txt"
+        with open(input_file, "w") as f:
+            for file_path in file_paths:
+                f.write(f"file '{file_path}'\n")
+
+        await sts.edit(f"💠 Merging {merge_type}s... ⚡")
+        if merge_type == "video":
+            await merge_videos(input_file, output_path)
+        else:
+            await merge_audios(input_file, output_path)
+
+        filesize = os.path.getsize(output_path)
+        filesize_human = humanbytes(filesize)
+        cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
+
+        await sts.edit("💠 Uploading... ⚡")
+
+        # Thumbnail handling
+        thumbnail_file_id = await db.get_thumbnail(user_id)
+        file_thumb = None
+        if thumbnail_file_id:
+            try:
+                file_thumb = await bot.download_media(thumbnail_file_id)
+            except Exception as e:
+                print(f"Error downloading thumbnail: {e}")
+
+        # Uploading the merged file
+        c_time = time.time()
+        if filesize > FILE_SIZE_LIMIT:
+            file_link = await upload_to_google_drive(output_path, output_filename, sts)
+            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+            await msg.reply_text(
+                f"File successfully merged and uploaded to Google Drive!\n\n"
+                f"Google Drive Link: [View File]({file_link})\n\n"
+                f"Uploaded File: {output_filename}\n"
+                f"Request User: {msg.from_user.mention}\n\n"
+                f"Size: {filesize_human}",
+                reply_markup=InlineKeyboardMarkup(button)
+            )
+        else:
+            await bot.send_document(
+                user_id,
+                document=output_path,
+                thumb=file_thumb,
+                caption=cap,
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+            )
+
+            await msg.reply_text(
+                f"┏📥 **File Name:** {output_filename}\n"
+                f"┠💾 **Size:** {filesize_human}\n"
+                f"┠♻️ **Mode:** Merge : {merge_type.capitalize()} + {merge_type.capitalize()}\n"
+                f"┗🚹 **Request User:** {msg.from_user.mention}\n\n"
+                f"❄ **File has been sent in Bot PM!**"
+            )
+
+    except Exception as e:
+        await sts.edit(f"❌ Error: {e}")
+
+    finally:
+        # Clean up temporary files
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        if os.path.exists(input_file):
+            os.remove(input_file)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        if file_thumb and os.path.exists(file_thumb):
+            os.remove(file_thumb)
+
+        # Clear merge state for the user
+        if user_id in merge_state:
+            del merge_state[user_id]
+
+        await sts.delete()
+
+
+async def merge_audios(input_file, output_file):
+    file_generator_command = [
+        "ffmpeg",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        input_file,
+        "-c",
+        "copy",
+        "-map",
+        "0",
+        output_file,
+    ]
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *file_generator_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg process returned error: {stderr.decode()}")
+
+    except Exception as e:
+        raise RuntimeError(f"Error merging audios: {e}")
+
+# Note: Implement download_media, upload_to_google_drive, humanbytes, and other necessary functions accordingly.
 
 # Leech command handler
 @Client.on_message(filters.command("leech") & filters.chat(GROUP))
