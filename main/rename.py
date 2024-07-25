@@ -1906,11 +1906,15 @@ async def unzip(bot, msg):
 
 
 
+import aiohttp
+import os
+import time
+
 @Client.on_message(filters.command("gofile") & filters.chat(GROUP))
 async def gofile_upload(bot, msg: Message):
     user_id = msg.from_user.id
 
-    # Retrieve the user's Gofile API key from database
+    # Retrieve the user's Gofile API key from the database
     gofile_api_key = await db.get_gofile_api_key(user_id)
 
     if not gofile_api_key:
@@ -1939,13 +1943,16 @@ async def gofile_upload(bot, msg: Message):
 
     try:
         async with aiohttp.ClientSession() as session:
-            # Get the server to upload the file
-            async with session.get("https://api.gofile.io/getServer") as resp:
+            # Get available servers
+            async with session.get("https://api.gofile.io/servers") as resp:
                 if resp.status != 200:
-                    return await sts.edit(f"Failed to get server. Status code: {resp.status}")
+                    return await sts.edit(f"Failed to get servers. Status code: {resp.status}")
 
                 data = await resp.json()
-                server = data["data"]["server"]
+                if not data.get("data") or not data["data"].get("servers"):
+                    return await sts.edit("No servers available.")
+                
+                server = data["data"]["servers"][0]  # Choose the first server or implement logic to select one
 
             # Download the media file
             downloaded_file = await bot.download_media(
@@ -1956,6 +1963,7 @@ async def gofile_upload(bot, msg: Message):
             )
 
             # Upload the file to Gofile
+            upload_url = f"https://{server}.gofile.io/contents/uploadfile"
             with open(downloaded_file, "rb") as file:
                 form_data = aiohttp.FormData()
                 form_data.add_field("file", file, filename=file_name)
@@ -1964,7 +1972,6 @@ async def gofile_upload(bot, msg: Message):
                 else:
                     headers = {}
 
-                upload_url = f"https://{server}.gofile.io/uploadFile"
                 async with session.post(
                     upload_url,
                     headers=headers,
