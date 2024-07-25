@@ -375,7 +375,7 @@ async def delete_photo_callback(client: Client, query: CallbackQuery):
 async def preview_photo_callback(client: Client, query: CallbackQuery):
     user_id = query.from_user.id
     
-    saved_photo = await db.get_photo(user_id)
+    saved_photo = await db.get_saved_photo(user_id)
 
     if saved_photo:
         await client.send_photo(query.message.chat.id, saved_photo, caption="Here is your saved photo.")
