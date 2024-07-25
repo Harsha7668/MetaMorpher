@@ -15,8 +15,29 @@ class Database:
         self.banned_col = self.db["banned_users"]
         self.user_quality_selection_col = self.db['user_quality_selection']
         self.file_data_col = self.db['file_data']
-
-
+        self.photo_col = self.db['photos']
+        
+    async def save_photo(self, user_id, file_id):
+        try:
+            await self.photo_col.update_one(
+                {"user_id": user_id},
+                {"$set": {"file_id": file_id}},
+                upsert=True
+            )
+            return "Photo saved successfully."
+        except Exception as e:
+            return f"Error saving photo: {e}"
+    
+    async def delete_photo(self, user_id):
+        try:
+            result = await self.photo_col.delete_one({"user_id": user_id})
+            if result.deleted_count == 0:
+                return "No photo found to delete."
+            else:
+                return "Photo deleted successfully."
+        except Exception as e:
+            return f"Error deleting photo: {e}"
+    
  
     async def add_user(self, user_id: int, username: str):
         try:
