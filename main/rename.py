@@ -3485,21 +3485,19 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
     await sts.delete()
 
 
+
+CHANNEL_ID = -1002038048493
+
+import re
 from pyrogram import Client, filters
 from pyrogram.types import Message
 import aiohttp
 import os
 import time
-import re
-from imdb import IMDb
 
-CHANNEL_ID = -1002038048493
-
-# Initialize IMDb instance
-imdb = IMDb()
-
-@Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
-async def gofile(bot: Client, msg: Message):
+# Define your bot
+@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
+async def gofile_upload(bot: Client, msg: Message):
     user_id = msg.from_user.id
     
     # Retrieve the user's Gofile API key from the database
@@ -3513,27 +3511,18 @@ async def gofile(bot: Client, msg: Message):
         return await msg.reply_text("Please reply to a file or video to upload to Gofile.")
 
     media = reply.document or reply.video
-    custom_name = None
+    file_name = media.file_name
 
-    # Check if a custom name is provided
-    args = msg.text.split(" ", 1)
-    if len(args) == 2:
-        custom_name = args[1]
-        await db.save_custom_name(user_id, custom_name)  # Save custom name to database
+    # Extract metadata from the file name
+    prefix, title, year, quality, language = extract_metadata_from_filename(file_name)
 
-    # Use custom name if available, otherwise use the file name
-    file_name = custom_name or media.file_name
-    
-    # Extract IMDb metadata from the file name (assuming the file name contains the movie title)
-    imdb_data = await get_poster(file_name, bulk=False, id=False)
-
-    # Format the message with IMDb details
+    # Create a static caption
     caption = (
-        f"📂Title: {imdb_data.get('title', 'Unknown')}\n"
-        f"🗓 Year: {imdb_data.get('year', 'Unknown')}\n"
-        f"🔈 Audio: [Telug + Tamil + Hindi]\n"  # Hardcoded for now
-        f"✅ Quality: HDRip\n"  # Hardcoded for now
-        f"⭐ IMDb: {imdb_data.get('rating', 'N/A')}\n"
+        f"📂Title: {title}\n"
+        f"🗓 Year: ({year})\n"
+        f"🔈 Audio: {language}\n"
+        f"✅ Quality: {quality}\n"
+        f"⭐ IMDb: N/A\n"  # IMDb rating is not available
         f"📥 Uploaded By: @sunriseseditsoffical6\n"
     )
 
@@ -3555,7 +3544,7 @@ async def gofile(bot: Client, msg: Message):
             # Download the media file
             downloaded_file = await bot.download_media(
                 media,
-                file_name=file_name,  # Use custom or original filename directly
+                file_name=file_name,
                 progress=progress_message,
                 progress_args=("🚀 Download Started...", sts, c_time)
             )
@@ -3594,65 +3583,36 @@ async def gofile(bot: Client, msg: Message):
         except Exception as e:
             print(f"Error deleting file: {e}")
 
-async def get_poster(query, bulk=False, id=False):
-    if not id:
-        query = query.strip().lower()
-        title = query
-        year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
-        if year:
-            year = year[0]
-            title = query.replace(year, "").strip()
-        movieid = imdb.search_movie(title, results=10)
-        if not movieid:
-            return None
-        if year:
-            filtered = [movie for movie in movieid if str(movie.get('year')) == str(year)]
-            if not filtered:
-                filtered = movieid
-        else:
-            filtered = movieid
-        movieid = [movie for movie in filtered if movie.get('kind') in ['movie', 'tv series']]
-        if not movieid:
-            movieid = filtered
-        if bulk:
-            return movieid
-        movieid = movieid[0].movieID
-    else:
-        movieid = query
-    movie = imdb.get_movie(movieid)
-    date = movie.get("original air date") or movie.get("year") or "N/A"
-    plot = movie.get('plot outline') if LONG_IMDB_DESCRIPTION else movie.get('plot')
-    plot = plot[0:800] + "..." if plot and len(plot) > 800 else plot
+def extract_metadata_from_filename(file_name):
+    # Example: @sunriseseditsoffical6 - Arcadian (2024) HQ HDRip 1080p - x264 - [Telugu] - AAC - ESub - Sunrises24.mkv
 
-    return {
-        'title': movie.get('title'),
-        'votes': movie.get('votes'),
-        "aka": ', '.join(movie.get("akas", [])),
-        "seasons": movie.get("number of seasons"),
-        "box_office": movie.get('box office'),
-        'localized_title': movie.get('localized title'),
-        'kind': movie.get("kind"),
-        "imdb_id": f"tt{movie.get('imdbID')}",
-        "cast": ', '.join(movie.get("cast", [])),
-        "runtime": ', '.join(movie.get("runtimes", [])),
-        "countries": ', '.join(movie.get("countries", [])),
-        "certificates": ', '.join(movie.get("certificates", [])),
-        "languages": ', '.join(movie.get("languages", [])),
-        "director": ', '.join(movie.get("director", [])),
-        "writer": ', '.join(movie.get("writer", [])),
-        "producer": ', '.join(movie.get("producer", [])),
-        "composer": ', '.join(movie.get("composer", [])),
-        "cinematographer": ', '.join(movie.get("cinematographer", [])),
-        "music_team": ', '.join(movie.get("music department", [])),
-        "distributors": ', '.join(movie.get("distributors", [])),
-        'release_date': date,
-        'year': movie.get('year'),
-        'genres': ', '.join(movie.get("genres", [])),
-        'poster': movie.get('full-size cover url'),
-        'plot': plot,
-        'rating': str(movie.get("rating")),
-        'url': f'https://www.imdb.com/title/tt{movieid}'
-            }
+    prefix = file_name.split(' - ')[0].strip()
+    
+    # Extract title and year
+    title_year_match = re.search(r' - (.+?) \((\d{4})\)', file_name)
+    if title_year_match:
+        title = title_year_match.group(1).strip()
+        year = title_year_match.group(2).strip()
+    else:
+        title = "Unknown Title"
+        year = "Unknown Year"
+
+    # Extract quality
+    quality_match = re.search(r'(\d{3,4}p)', file_name)
+    if quality_match:
+        quality = quality_match.group(1).strip()
+    else:
+        quality = "Unknown Quality"
+
+    # Extract language
+    language_match = re.search(r'\[([^\]]+)\]', file_name)
+    if language_match:
+        language = language_match.group(1).strip()
+    else:
+        language = "Unknown Language"
+
+    return prefix, title, year, quality, language
+
 
             
 if __name__ == '__main__':
