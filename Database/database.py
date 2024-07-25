@@ -16,7 +16,8 @@ class Database:
         self.user_quality_selection_col = self.db['user_quality_selection']
         self.file_data_col = self.db['file_data']
         self.photo_col = self.db['photos']
-        
+
+
     async def save_photo(self, user_id, file_id):
         try:
             await self.photo_col.update_one(
@@ -27,7 +28,7 @@ class Database:
             return "Photo saved successfully."
         except Exception as e:
             return f"Error saving photo: {e}"
-    
+
     async def delete_photo(self, user_id):
         try:
             result = await self.photo_col.delete_one({"user_id": user_id})
@@ -37,8 +38,17 @@ class Database:
                 return "Photo deleted successfully."
         except Exception as e:
             return f"Error deleting photo: {e}"
+
+    async def get_photo(self, user_id):
+        try:
+            photo_data = await self.photo_col.find_one({"user_id": user_id})
+            if photo_data and "file_id" in photo_data:
+                return photo_data["file_id"]
+            return None
+        except Exception as e:
+            return None    
+        
     
- 
     async def add_user(self, user_id: int, username: str):
         try:
             await self.users_col.update_one(
@@ -46,7 +56,7 @@ class Database:
                 {"$set": {
                     "username": username,
                     "joined_updates_channel": False,
-                    "joined_group_channel": False
+                    "joined_groupchannel": False
                 }},
                 upsert=True
             )
