@@ -3484,95 +3484,6 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
         os.remove(file_thumb)
     await sts.delete()
 
-import subprocess
-import os
-import time
-import urllib.parse
-import shlex
-from pyrogram import Client, filters
-from pyrogram.types import Message
-
-MAX_MESSAGE_LENGTH = 4096
-
-def split_message(message):
-    """Split the message into parts if it's too long."""
-    return [message[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(message), MAX_MESSAGE_LENGTH)]
-
-@Client.on_message(filters.command("transfer") & filters.chat(GROUP))
-async def transfer_upload(bot, msg: Message):
-    user_id = msg.from_user.id
-    
-    reply = msg.reply_to_message
-    if not reply or not reply.document and not reply.video:
-        return await msg.reply_text("Please reply to a file or video to upload to Transfer.sh.")
-
-    media = reply.document or reply.video
-    custom_name = None
-
-    # Check if a custom name is provided
-    args = msg.text.split(" ", 1)
-    if len(args) == 2:
-        custom_name = args[1]
-
-    # Use custom name if available, otherwise use the file name
-    file_name = custom_name or media.file_name
-
-    sts = await msg.reply_text("🚀 Downloading and uploading to Transfer.sh...")
-    c_time = time.time()
-    
-    downloaded_file = None
-
-    try:
-        # Download the media file
-        downloaded_file = await bot.download_media(
-            media,
-            file_name=file_name,  # Use custom or original filename directly
-            progress=progress_message,
-            progress_args=("🚀 Download Started...", sts, c_time)
-        )
-
-        # URL-encode the filename for the URL
-        encoded_file_name = urllib.parse.quote(file_name)
-        url = f"https://transfer.sh/{encoded_file_name}"
-        
-        # Safely quote the file path
-        quoted_file_path = shlex.quote(downloaded_file)
-        
-        command_to_exec = [
-            "curl",
-            "--upload-file", quoted_file_path,
-            url
-        ]
-
-        # Use subprocess.run without shell=True and as a list to handle the command and arguments properly
-        result = subprocess.run(command_to_exec, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            await sts.edit(f"Upload failed: {result.stderr}")
-            return
-
-        # Extract the download link from the output
-        response = result.stdout.strip()
-        
-        # Split long messages
-        message_parts = split_message(response)
-        for part in message_parts:
-            await bot.send_message(
-                chat_id=msg.chat.id,
-                text=f"Upload successful!\nDownload link: {part}"
-            )
-
-    except Exception as e:
-        await sts.edit(f"Error during upload: {e}")
-
-    finally:
-        # Clean up the downloaded file
-        try:
-            if downloaded_file and os.path.exists(downloaded_file):
-                os.remove(downloaded_file)
-        except Exception as e:
-            print(f"Error deleting file: {e}")
-
 
 import aiohttp
 import os
@@ -3584,7 +3495,7 @@ from pyrogram.types import Message
 async def clone_gofile(bot, msg: Message):
     user_id = msg.from_user.id
 
-    # Retrieve the user's Gofile API key from database
+    # Retrieve the user's Gofile API key from the database
     gofile_api_key = await db.get_gofile_api_key(user_id)
 
     if not gofile_api_key:
@@ -3615,37 +3526,25 @@ async def clone_gofile(bot, msg: Message):
                 with open(file_path, "wb") as file:
                     file.write(await resp.read())
 
-            # Get the server to upload the file
-            async with session.get("https://api.gofile.io/getServer") as resp:
-                if resp.status != 200:
-                    return await sts.edit(f"Failed to get server. Status code: {resp.status}")
-
-                data = await resp.json()
-                server = data["data"]["server"]
-
             # Upload the file to Gofile
-            with open(file_path, "rb") as file:
-                form_data = aiohttp.FormData()
-                form_data.add_field("file", file, filename=file_name)
-                form_data.add_field("token", gofile_api_key)
+            form_data = aiohttp.FormData()
+            form_data.add_field("file", open(file_path, "rb"), filename=file_name)
+            form_data.add_field("token", gofile_api_key)
 
-                async with session.post(
-                    f"https://{server}.gofile.io/uploadFile",
-                    data=form_data
-                ) as resp:
-                    if resp.status != 200:
-                        return await sts.edit(f"Upload failed: Status code {resp.status}")
+            async with session.post("https://gofile.io/uploadFile", data=form_data) as resp:
+                if resp.status != 200:
+                    return await sts.edit(f"Upload failed: Status code {resp.status}")
 
-                    response = await resp.json()
-                    if response["status"] == "ok":
-                        download_url = response["data"]["downloadPage"]
-                        watch_url = download_url  # Assume the watch URL is the same as the download URL for simplicity
+                response = await resp.json()
+                if response["status"] == "ok":
+                    download_url = response["data"]["downloadPage"]
+                    watch_url = download_url  # Assume the watch URL is the same as the download URL for simplicity
 
-                        # Get the file size
-                        file_size = os.path.getsize(file_path) / (1024 * 1024)  # Size in MiB
+                    # Get the file size
+                    file_size = os.path.getsize(file_path) / (1024 * 1024)  # Size in MiB
 
-                        # Generate the custom message
-                        message_template = f"""
+                    # Generate the custom message
+                    message_template = f"""
 Ivigo Mithrama Mi Links!
 
 📂 Fɪʟᴇ ɴᴀᴍᴇ : {file_name}
@@ -3656,9 +3555,9 @@ To DOWNLOAD : {download_url}
 
 🚸 Nᴏᴛᴇ : Mana Bot Nachithey Mi Friends Ki Kuda Share Cheyandi😇❤️
 """
-                        await sts.edit(message_template)
-                    else:
-                        await sts.edit(f"Upload failed: {response['message']}")
+                    await sts.edit(message_template)
+                else:
+                    await sts.edit(f"Upload failed: {response['message']}")
 
     except Exception as e:
         await sts.edit(f"Error during cloning: {e}")
