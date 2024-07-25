@@ -6,17 +6,11 @@ import os
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
 PROGRESS_BAR = """
 ╭───[**•PROGRESS BAR•**]───⍟
-│
 ├<b>{5}</b>
-│
 ├<b>📁**PROCESS** : {1} | {2}</b>
-│
 ├<b>🚀**PERCENT** : {0}%</b>
-│
 ├<b>⚡**SPEED** : {3}</b>
-│
 ├<b>⏱️**ETA** : {4}</b>
-│
 ╰─────────────────⍟"""
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
@@ -34,8 +28,8 @@ async def progress_message(current, total, ud_type, message, start):
         estimated_total_time = TimeFormatter(estimated_total_time_ms)
 
         progress = "{0}{1}".format(
-            ''.join(["■" for i in range(math.floor(percentage / 5))]),
-            ''.join(["□" for i in range(20 - math.floor(percentage / 5))])
+            ''.join(["▣" for i in range(math.floor(percentage / 5))]),
+            ''.join(["▢" for i in range(20 - math.floor(percentage / 5))])
         )
         tmp = progress + f"\nProgress: {round(percentage, 2)}%\n{humanbytes(current)} of {humanbytes(total)}\nSpeed: {speed}\nETA: {estimated_total_time if estimated_total_time != '' else '0 s'}"
 
