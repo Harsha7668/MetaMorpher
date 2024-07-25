@@ -3485,90 +3485,107 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
     await sts.delete()
 
 
+from pyrogram import Client, filters
+from pyrogram.types import Message
 import aiohttp
 import os
 import time
-from pyrogram import Client, filters
-from pyrogram.types import Message
+import re
+from imdb import IMDb
 
-@Client.on_message(filters.command("clonegofile") & filters.chat(GROUP))
-async def clone_gofile(bot, msg: Message):
+CHANNEL_ID = -1002038048493
+
+# Initialize IMDb instance
+imdb = IMDb()
+
+@Client.on_message(filters.command("gofileupload") & filters.chat(GROUP))
+async def gofile(bot: Client, msg: Message):
     user_id = msg.from_user.id
-
+    
     # Retrieve the user's Gofile API key from the database
     gofile_api_key = await db.get_gofile_api_key(user_id)
 
     if not gofile_api_key:
         return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
 
-    # Extract the Gofile link from the message
-    args = msg.text.split(" ")
-    if len(args) < 2:
-        return await msg.reply_text("Please provide a Gofile link to clone.")
+    reply = msg.reply_to_message
+    if not reply or not reply.document and not reply.video:
+        return await msg.reply_text("Please reply to a file or video to upload to Gofile.")
 
-    gofile_link = args[1]
+    media = reply.document or reply.video
+    custom_name = None
 
-    sts = await msg.reply_text("🚀 Cloning the Gofile link...")
+    # Check if a custom name is provided
+    args = msg.text.split(" ", 1)
+    if len(args) == 2:
+        custom_name = args[1]
+        await db.save_custom_name(user_id, custom_name)  # Save custom name to database
+
+    # Use custom name if available, otherwise use the file name
+    file_name = custom_name or media.file_name
+    
+    # Extract IMDb metadata from the file name (assuming the file name contains the movie title)
+    imdb_data = await get_poster(file_name, bulk=False, id=False)
+
+    # Format the message with IMDb details
+    caption = (
+        f"📂Title: {imdb_data.get('title', 'Unknown')}\n"
+        f"🗓 Year: {imdb_data.get('year', 'Unknown')}\n"
+        f"🔈 Audio: [Telug + Tamil + Hindi]\n"  # Hardcoded for now
+        f"✅ Quality: HDRip\n"  # Hardcoded for now
+        f"⭐ IMDb: {imdb_data.get('rating', 'N/A')}\n"
+        f"📥 Uploaded By: @sunriseseditsoffical6\n"
+    )
+
+    sts = await msg.reply_text("🚀 Uploading to Gofile...")
     c_time = time.time()
-
+    
     downloaded_file = None
 
     try:
         async with aiohttp.ClientSession() as session:
-            # Download the file from the given Gofile link
-            async with session.get(gofile_link) as resp:
+            # Get the server to upload the file
+            async with session.get("https://api.gofile.io/getServer") as resp:
                 if resp.status != 200:
-                    return await sts.edit(f"Failed to download file from the link. Status code: {resp.status}")
+                    return await sts.edit(f"Failed to get server. Status code: {resp.status}")
 
-                file_name = gofile_link.split('/')[-1]  # Extract the file name from the link
-                file_path = os.path.join("/tmp", file_name)
+                data = await resp.json()
+                server = data["data"]["server"]
 
-                with open(file_path, "wb") as file:
-                    file.write(await resp.read())
+            # Download the media file
+            downloaded_file = await bot.download_media(
+                media,
+                file_name=file_name,  # Use custom or original filename directly
+                progress=progress_message,
+                progress_args=("🚀 Download Started...", sts, c_time)
+            )
 
             # Upload the file to Gofile
-            form_data = aiohttp.FormData()
-            form_data.add_field("file", open(file_path, "rb"), filename=file_name)
-            form_data.add_field("token", gofile_api_key)
+            with open(downloaded_file, "rb") as file:
+                form_data = aiohttp.FormData()
+                form_data.add_field("file", file, filename=file_name)
+                form_data.add_field("token", gofile_api_key)
 
-            async with session.post("https://gofile.io/uploadFile", data=form_data) as resp:
-                if resp.status != 200:
-                    # Read and print the response text to debug
-                    response_text = await resp.text()
-                    return await sts.edit(f"Upload failed: Status code {resp.status}\nResponse: {response_text}")
+                async with session.post(
+                    f"https://{server}.gofile.io/uploadFile",
+                    data=form_data
+                ) as resp:
+                    if resp.status != 200:
+                        return await sts.edit(f"Upload failed: Status code {resp.status}")
 
-                # Try to decode the response as JSON
-                try:
                     response = await resp.json()
                     if response["status"] == "ok":
                         download_url = response["data"]["downloadPage"]
-                        watch_url = download_url  # Assume the watch URL is the same as the download URL for simplicity
+                        await sts.edit(f"Upload successful!\nDownload link: {download_url}")
 
-                        # Get the file size
-                        file_size = os.path.getsize(file_path) / (1024 * 1024)  # Size in MiB
-
-                        # Generate the custom message
-                        message_template = f"""
-Ivigo Mithrama Mi Links!
-
-📂 Fɪʟᴇ ɴᴀᴍᴇ : {file_name}
-
-📦 Fɪʟᴇ ꜱɪᴢᴇ : {file_size:.2f} MiB
-
-To DOWNLOAD : {download_url}
-
-TO WATCH  : {watch_url}
-
-🚸 Nᴏᴛᴇ : Mana Bot Nachithey Mi Friends Ki Kuda Share Cheyandi😇❤️
-"""
-                        await sts.edit(message_template)
+                        # Post the metadata to the channel
+                        channel_message = f"{caption}\nDownload link: {download_url}"
+                        await bot.send_message(CHANNEL_ID, channel_message)
                     else:
                         await sts.edit(f"Upload failed: {response['message']}")
-                except aiohttp.ContentTypeError:
-                    await sts.edit("Failed to decode the response. The content type might not be JSON.")
 
     except Exception as e:
-        await sts.edit(f"Error during cloning: {e}")
+        await sts.edit(f"Error during upload: {e}")
 
     finally:
         try:
@@ -3576,6 +3593,66 @@ TO WATCH  : {watch_url}
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
+
+async def get_poster(query, bulk=False, id=False):
+    if not id:
+        query = query.strip().lower()
+        title = query
+        year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
+        if year:
+            year = year[0]
+            title = query.replace(year, "").strip()
+        movieid = imdb.search_movie(title, results=10)
+        if not movieid:
+            return None
+        if year:
+            filtered = [movie for movie in movieid if str(movie.get('year')) == str(year)]
+            if not filtered:
+                filtered = movieid
+        else:
+            filtered = movieid
+        movieid = [movie for movie in filtered if movie.get('kind') in ['movie', 'tv series']]
+        if not movieid:
+            movieid = filtered
+        if bulk:
+            return movieid
+        movieid = movieid[0].movieID
+    else:
+        movieid = query
+    movie = imdb.get_movie(movieid)
+    date = movie.get("original air date") or movie.get("year") or "N/A"
+    plot = movie.get('plot outline') if LONG_IMDB_DESCRIPTION else movie.get('plot')
+    plot = plot[0:800] + "..." if plot and len(plot) > 800 else plot
+
+    return {
+        'title': movie.get('title'),
+        'votes': movie.get('votes'),
+        "aka": ', '.join(movie.get("akas", [])),
+        "seasons": movie.get("number of seasons"),
+        "box_office": movie.get('box office'),
+        'localized_title': movie.get('localized title'),
+        'kind': movie.get("kind"),
+        "imdb_id": f"tt{movie.get('imdbID')}",
+        "cast": ', '.join(movie.get("cast", [])),
+        "runtime": ', '.join(movie.get("runtimes", [])),
+        "countries": ', '.join(movie.get("countries", [])),
+        "certificates": ', '.join(movie.get("certificates", [])),
+        "languages": ', '.join(movie.get("languages", [])),
+        "director": ', '.join(movie.get("director", [])),
+        "writer": ', '.join(movie.get("writer", [])),
+        "producer": ', '.join(movie.get("producer", [])),
+        "composer": ', '.join(movie.get("composer", [])),
+        "cinematographer": ', '.join(movie.get("cinematographer", [])),
+        "music_team": ', '.join(movie.get("music department", [])),
+        "distributors": ', '.join(movie.get("distributors", [])),
+        'release_date': date,
+        'year': movie.get('year'),
+        'genres': ', '.join(movie.get("genres", [])),
+        'poster': movie.get('full-size cover url'),
+        'plot': plot,
+        'rating': str(movie.get("rating")),
+        'url': f'https://www.imdb.com/title/tt{movieid}'
+            }
 
             
 if __name__ == '__main__':
