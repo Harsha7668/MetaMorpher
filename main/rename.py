@@ -241,10 +241,10 @@ async def display_user_settings(client, msg, edit=False):
         [InlineKeyboardButton("Thumbnail Settings 📄", callback_data="thumbnail_settings")],
         [InlineKeyboardButton("View Metadata ✨", callback_data="preview_metadata")],
         [InlineKeyboardButton("Attach Photo 📎", callback_data="attach_photo"), 
-         InlineKeyboardButton("View Photo ✨", callback_data="preview_photo")],
+         InlineKeyboardButton("View Photo Post ✨", callback_data="preview_photo_posy")],        
+        [InlineKeyboardButton("Delete Photo  Post ❌", callback_data="delete_photo_post")],
         [InlineKeyboardButton("View Gofile API Key 🔗", callback_data="preview_gofilekey")],
         [InlineKeyboardButton("View Google Drive Folder ID 📂", callback_data="preview_gdrive")],
-        [InlineKeyboardButton("💠", callback_data="sunrises24_bot_updates")],
         [InlineKeyboardButton("Close ❌", callback_data="del")]
     ])
     
@@ -252,6 +252,7 @@ async def display_user_settings(client, msg, edit=False):
         await msg.edit_text(f"User Settings\nCurrent sample video duration: {current_duration}\nCurrent screenshots setting: {current_screenshots}", reply_markup=keyboard)
     else:
         await msg.reply(f"User Settings\nCurrent sample video duration: {current_duration}\nCurrent screenshots setting: {current_screenshots}", reply_markup=keyboard)
+
 
 @Client.on_callback_query(filters.regex("^screenshots_option$"))
 async def screenshots_option(client, callback_query: CallbackQuery):
@@ -298,22 +299,7 @@ async def inline_attach_photo_callback(_, callback_query):
     
     await callback_query.message.edit_text("Please send a photo to be attached using the setphoto command.")
 
-"""
-@Client.on_message(filters.private & filters.command("setphoto"))
-async def set_photo(bot, msg):
-    reply = msg.reply_to_message
-    if not reply or not reply.photo:
-        return await msg.reply_text("Please reply to a photo with the setphoto command")
 
-    user_id = msg.from_user.id
-    photo_file_id = reply.photo.file_id
-
-    try:
-        await db.save_attach_photo(user_id, photo_file_id)
-        await msg.reply_text("Photo saved successfully.")
-    except Exception as e:
-        await msg.reply_text(f"Error saving photo: {e}")
-"""
 
 
 @Client.on_message(filters.private & filters.command("setphoto"))
@@ -374,6 +360,27 @@ async def inline_thumbnail_settings(client, callback_query: CallbackQuery):
         ]
     )
     await callback_query.message.edit_text("Thumbnail Settings:", reply_markup=keyboard)
+
+
+
+
+@Client.on_callback_query(filters.regex("delete_photo_post"))
+async def delete_photo_callback(client: Client, query: CallbackQuery):
+    user_id = query.from_user.id
+    result = await photo_db.delete_photo(user_id)
+    await query.message.edit_text(result)
+
+@Client.on_callback_query(filters.regex("preview_photo_post"))
+async def preview_photo_callback(client: Client, query: CallbackQuery):
+    user_id = query.from_user.id
+    
+    saved_photo = await photo_db.get_photo(user_id)
+
+    if saved_photo:
+        await client.send_photo(query.message.chat.id, saved_photo, caption="Here is your saved photo.")
+    else:
+        await query.message.edit_text("No photo found. Please save a photo first.")
+
 
 @Client.on_message(filters.command("setthumbnail") & filters.chat(GROUP))
 async def set_thumbnail_command(client, message):
@@ -515,9 +522,17 @@ async def inline_preview_gofile_api_key(bot, callback_query):
     await callback_query.message.reply_text(f"Current Gofile API Key for user `{user_id}`: {api_key}")
 
 
+@Client.on_message(filters.command("savephotopost") & filters.chat(GROUP))
+async def save_photo(bot: Client, msg: Message):
+    user_id = msg.from_user.id
+    reply = msg.reply_to_message
+    if not reply or not reply.photo:
+        return await msg.reply_text("Please reply to a photo to save.")
 
-    
-  
+    photo = reply.photo
+    result = await photo_db.save_photo(user_id, photo.file_id)
+    await msg.reply_text(result)
+
 
 # Command handler for /mirror
 @Client.on_message(filters.command("mirror") & filters.chat(GROUP))
@@ -3308,23 +3323,13 @@ async def change_metadata_and_index(bot, msg, downloaded, new_name, media, sts, 
 
 CHANNEL_ID = -1002038048493
 
-import aiohttp
-import os
-import time
-from pyrogram import Client, filters
-from pyrogram.types import Message
-
-
-
-saved_photo = None
-
-@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
-async def gofile_upload(bot: Client, msg: Message):
-    global saved_photo
+@Client.on_message(filters.command("gofilepost") & filters.chat(GROUP))
+async def gofileChannelPost(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
     # Retrieve the user's Gofile API key from the database
-    gofile_api_key = await db.get_gofile_api_key(user_id)
+    gofile_api_key = await db.users_col.find_one({"user_id": user_id}, {"gofile_api_key": 1})
+    gofile_api_key = gofile_api_key.get("gofile_api_key") if gofile_api_key else None
 
     if not gofile_api_key:
         return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
@@ -3364,7 +3369,7 @@ async def gofile_upload(bot: Client, msg: Message):
                 media,
                 file_name=file_name,  # Use custom or original filename directly
                 progress=progress_message,
-                progress_args=("🚀 Download Started...", sts, c_time)
+                progress_args=("🚀 Upload Started...", sts, c_time)
             )
 
             # Upload the file to Gofile
@@ -3386,12 +3391,13 @@ async def gofile_upload(bot: Client, msg: Message):
                         download_url = response["data"]["downloadPage"]
 
                         # Prepare the caption
-                        caption = f"📂 **Filename**: {file_name}\n\n**Download link**: {download_url}"
+                        caption = f"📂 **Filename: {file_name}\n\n🖇️**Download Link**: {download_url}"
 
-                        # Post the photo with the caption to the channel
-                        if saved_photo:
+                        # Retrieve saved photo from the database
+                        photo_data = await photo_db.photo_col.find_one({"user_id": user_id})
+                        if photo_data and "file_id" in photo_data:
+                            saved_photo = photo_data["file_id"]
                             await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
-                            saved_photo = None  # Clear the saved photo after posting
                         else:
                             await bot.send_message(CHANNEL_ID, caption)
 
@@ -3408,22 +3414,6 @@ async def gofile_upload(bot: Client, msg: Message):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
-
-@Client.on_message(filters.command("SavePhoto") & filters.chat(GROUP))
-async def save_photo(bot: Client, msg: Message):
-    global saved_photo
-    reply = msg.reply_to_message
-    if not reply or not reply.photo:
-        return await msg.reply_text("Please reply to a photo to save.")
-
-    photo = reply.photo
-
-    try:
-        # Save the photo file_id to a global variable
-        saved_photo = photo.file_id
-        await msg.reply_text("Photo saved successfully.")
-    except Exception as e:
-        await msg.reply_text(f"Error saving photo: {e}")
 
 
 
