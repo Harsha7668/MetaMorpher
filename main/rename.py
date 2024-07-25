@@ -1295,7 +1295,7 @@ async def start_merge_command(bot, msg: Message):
         "video_audio": {"files": [], "output_filename": None, "is_merging": False}
     }
 
-    await msg.reply_text("Send up to 10 video/audio files one by one. Once done, send `/videomerge filename`, `/audiomerge filename`, or `/videowithaudiomerge filename`.")
+    await msg.reply_text("Send up to 10 video/audio files one by one. Once done, send `/videomerge filename` or `/videowithaudiomerge filename`.")
 
 @Client.on_message(filters.command("videomerge") & filters.chat(GROUP))
 async def start_video_merge_command(bot, msg: Message):
@@ -1309,17 +1309,7 @@ async def start_video_merge_command(bot, msg: Message):
 
     await merge_and_upload(bot, msg, merge_type="video")
 
-@Client.on_message(filters.command("audiomerge") & filters.chat(GROUP))
-async def start_audio_merge_command(bot, msg: Message):
-    user_id = msg.from_user.id
-    if user_id not in merge_state or not merge_state[user_id]["audio"]["files"]:
-        return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
 
-    output_filename = msg.text.split(' ', 1)[1].strip()  # Extract output filename from command
-    merge_state[user_id]["audio"]["output_filename"] = output_filename
-    merge_state[user_id]["audio"]["is_merging"] = True  # Set the flag to indicate that merging has started
-
-    await merge_and_upload(bot, msg, merge_type="audio")
 
 @Client.on_message(filters.command("videowithaudiomerge") & filters.chat(GROUP))
 async def start_video_with_audio_merge_command(bot, msg: Message):
@@ -1389,9 +1379,7 @@ async def merge_and_upload(bot, msg: Message, merge_type="video"):
 
         await sts.edit(f"💠 Merging {merge_type}s... ⚡")
         if merge_type == "video":
-            await merge_videos(input_file, output_path)
-        elif merge_type == "audio":
-            await merge_audios(input_file, output_path)
+            await merge_videos(input_file, output_path)        
         elif merge_type == "video_audio":
             await merge_videos_with_audio(input_file, output_path, first_video)
 
@@ -1491,38 +1479,12 @@ async def merge_videos(input_file, output_file):
     except Exception as e:
         raise RuntimeError(f"Error merging videos: {e}")
 
-async def merge_audios(input_file, output_file):
-    file_generator_command = [
-        "ffmpeg",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        input_file,
-        "-c",
-        "copy",
-        "-map",
-        "0",
-        output_file,
-    ]
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *file_generator_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await process.communicate()
 
-        if process.returncode != 0:
-            raise Exception(f"FFmpeg process returned error: {stderr.decode()}")
-
-    except Exception as e:
-        raise RuntimeError(f"Error merging audios: {e}")
 
 async def merge_videos_with_audio(input_file, output_file, first_video):
     file_generator_command = [
         "ffmpeg",
+        "-report",  # Add this line to generate a log file
         "-f",
         "concat",
         "-safe",
@@ -1545,14 +1507,13 @@ async def merge_videos_with_audio(input_file, output_file, first_video):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await process.communicate()
+        stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
             raise Exception(f"FFmpeg process returned error: {stderr.decode()}")
 
     except Exception as e:
         raise RuntimeError(f"Error merging videos and audios: {e}")
-
 
 
 
