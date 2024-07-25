@@ -1260,10 +1260,11 @@ async def merge_and_upload(bot, msg: Message):
         await sts.delete()
 """
 
-import asyncio
 import os
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+
+# Constants
 
 SUPPORTED_VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.webm']
 SUPPORTED_AUDIO_EXTENSIONS = ['.aac', '.eac3', '.eac', '.opus', '.mp3', '.mka']
@@ -1302,8 +1303,12 @@ async def handle_media_files(bot, msg: Message):
             await msg.reply_text("Merging process has started. No more files can be added.")
             return
 
-        file_ext = os.path.splitext(msg.document.file_name if msg.document else msg.video.file_name if msg.video else msg.audio.file_name)[1].lower()
-        
+        file_ext = os.path.splitext(
+            msg.document.file_name if msg.document else
+            msg.video.file_name if msg.video else
+            msg.audio.file_name if msg.audio else ""
+        )[1].lower()
+
         if msg.video and file_ext in SUPPORTED_VIDEO_EXTENSIONS:
             if not merge_state[user_id]["video"]:
                 merge_state[user_id]["video"] = msg
@@ -1311,20 +1316,13 @@ async def handle_media_files(bot, msg: Message):
             else:
                 await msg.reply_text("Video file already received. Send audio files or use `/videomerge filename` to start merging.")
         
-        elif msg.audio and file_ext in SUPPORTED_AUDIO_EXTENSIONS:
+        elif (msg.audio or msg.document) and file_ext in SUPPORTED_AUDIO_EXTENSIONS:
             if len(merge_state[user_id]["audios"]) < 10:
                 merge_state[user_id]["audios"].append(msg)
                 await msg.reply_text("Audio received. Send more audio files or use `/videomerge filename` to start merging.")
             else:
                 await msg.reply_text("You have already sent 10 audio files. Use `/videomerge filename` to start merging.")
         
-        elif msg.document and file_ext in SUPPORTED_VIDEO_EXTENSIONS:
-            if not merge_state[user_id]["video"]:
-                merge_state[user_id]["video"] = msg
-                await msg.reply_text("Video received. Send audio files or use `/videomerge filename` to start merging.")
-            else:
-                await msg.reply_text("Video file already received. Send audio files or use `/videomerge filename` to start merging.")
-                
         else:
             await msg.reply_text("Unsupported file type. Please send a video or audio file.")
 
@@ -1449,25 +1447,6 @@ async def merge_video_and_audios(video_path, audio_paths, output_path):
     
     except Exception as e:
         print(f"Error during merging: {e}")
-
-# Helper functions
-async def download_media(msg, sts):
-    # Implement media download logic here
-    pass
-
-def humanbytes(size):
-    # Convert bytes to human-readable format
-    pass
-
-async def upload_to_google_drive(file_path, filename, sts):
-    # Implement Google Drive upload logic here
-    pass
-
-async def progress_message(current, total, message, sts, c_time):
-    # Implement progress message logic here
-    pass
-            
-
 
 
 
