@@ -3329,9 +3329,7 @@ async def gofileChannelPost(bot: Client, msg: Message):
     user_id = msg.from_user.id
 
     # Retrieve the user's Gofile API key from the database
-    gofile_api_key = await db.users_col.find_one({"user_id": user_id}, {"gofile_api_key": 1})
-    gofile_api_key = gofile_api_key.get("gofile_api_key") if gofile_api_key else None
-
+    gofile_api_key = await db.get_gofile_api_key(user_id)
     if not gofile_api_key:
         return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
 
@@ -3395,7 +3393,7 @@ async def gofileChannelPost(bot: Client, msg: Message):
                         caption = f"📂 **Filename: {file_name}\n\n🖇️**Download Link**: {download_url}"
 
                         # Retrieve saved photo from the database
-                        photo_data = await db.photo_col.find_one({"user_id": user_id})
+                        photo_data = await db.get_saved_photo(user_id)
                         if photo_data and "file_id" in photo_data:
                             saved_photo = photo_data["file_id"]
                             await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
@@ -3415,8 +3413,6 @@ async def gofileChannelPost(bot: Client, msg: Message):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
-
-
 
             
 if __name__ == '__main__':
