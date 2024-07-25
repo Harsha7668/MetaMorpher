@@ -3533,18 +3533,22 @@ async def clone_gofile(bot, msg: Message):
 
             async with session.post("https://gofile.io/uploadFile", data=form_data) as resp:
                 if resp.status != 200:
-                    return await sts.edit(f"Upload failed: Status code {resp.status}")
+                    # Read and print the response text to debug
+                    response_text = await resp.text()
+                    return await sts.edit(f"Upload failed: Status code {resp.status}\nResponse: {response_text}")
 
-                response = await resp.json()
-                if response["status"] == "ok":
-                    download_url = response["data"]["downloadPage"]
-                    watch_url = download_url  # Assume the watch URL is the same as the download URL for simplicity
+                # Try to decode the response as JSON
+                try:
+                    response = await resp.json()
+                    if response["status"] == "ok":
+                        download_url = response["data"]["downloadPage"]
+                        watch_url = download_url  # Assume the watch URL is the same as the download URL for simplicity
 
-                    # Get the file size
-                    file_size = os.path.getsize(file_path) / (1024 * 1024)  # Size in MiB
+                        # Get the file size
+                        file_size = os.path.getsize(file_path) / (1024 * 1024)  # Size in MiB
 
-                    # Generate the custom message
-                    message_template = f"""
+                        # Generate the custom message
+                        message_template = f"""
 Ivigo Mithrama Mi Links!
 
 📂 Fɪʟᴇ ɴᴀᴍᴇ : {file_name}
@@ -3553,11 +3557,15 @@ Ivigo Mithrama Mi Links!
 
 To DOWNLOAD : {download_url}
 
+TO WATCH  : {watch_url}
+
 🚸 Nᴏᴛᴇ : Mana Bot Nachithey Mi Friends Ki Kuda Share Cheyandi😇❤️
 """
-                    await sts.edit(message_template)
-                else:
-                    await sts.edit(f"Upload failed: {response['message']}")
+                        await sts.edit(message_template)
+                    else:
+                        await sts.edit(f"Upload failed: {response['message']}")
+                except aiohttp.ContentTypeError:
+                    await sts.edit("Failed to decode the response. The content type might not be JSON.")
 
     except Exception as e:
         await sts.edit(f"Error during cloning: {e}")
