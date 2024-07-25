@@ -20,4 +20,5 @@ motor
 pymongo
 datetime
 psutil
+hurry
 
