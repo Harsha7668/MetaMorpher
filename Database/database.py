@@ -39,7 +39,7 @@ class Database:
         except Exception as e:
             return f"Error deleting photo: {e}"
 
-    async def get_photo(self, user_id):
+    async def get_saved_photo(self, user_id):
         try:
             photo_data = await self.photo_col.find_one({"user_id": user_id})
             if photo_data and "file_id" in photo_data:
