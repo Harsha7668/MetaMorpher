@@ -3433,121 +3433,6 @@ CHANNEL_ID = -1002038048493
 
 # Define GROUP filter as per your requirements
 
-"""
-@Client.on_message(filters.command("gofilepost") & filters.chat(GROUP))
-async def gofile_upload(bot: Client, msg: Message):
-    user_id = msg.from_user.id
-
-    # Retrieve the user's Gofile API key from the database
-    gofile_api_key = await db.get_gofile_api_key(user_id)
-
-    if not gofile_api_key:
-        return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
-
-    reply = msg.reply_to_message
-    if not reply or not (reply.document or reply.video or reply.audio):
-        return await msg.reply_text("Please reply to a file, video, or audio to upload to Gofile.")
-
-    media = reply.document or reply.video or reply.audio
-    original_file_name = media.file_name
-
-    # Replace underscores with dashes for display purposes
-    display_file_name = original_file_name.replace("_", " - ")
-
-    sts = await msg.reply_text("🚀 Uploading to Gofile...")
-    c_time = time.time()
-    
-    downloaded_file = None
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            # Get available servers
-            async with session.get("https://api.gofile.io/servers") as resp:
-                if resp.status != 200:
-                    return await sts.edit(f"Failed to get servers. Status code: {resp.status}")
-
-                data = await resp.json()
-                servers = data.get("data", {}).get("servers", [])
-                if not servers:
-                    return await sts.edit("No servers available.")
-                
-                server_name = servers[0].get("name")  # Use the server name
-                if not server_name:
-                    return await sts.edit("Server name is missing.")
-                
-                upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
-
-            # Download the media file
-            downloaded_file = await bot.download_media(
-                media,
-                file_name=original_file_name,  # Use the original filename for download
-                progress=progress_message,
-                progress_args=("🚀 Download Started...", sts, c_time)
-            )
-
-            # Get the file size
-            file_size = os.path.getsize(downloaded_file)
-            readable_file_size = size(file_size)
-
-            # Get the audio duration if the file is an audio
-            audio_duration = media.duration if reply.audio else None
-            if audio_duration:
-                duration_str = str(datetime.timedelta(seconds=audio_duration))
-            else:
-                duration_str = "N/A"
-
-            # Upload the file to Gofile
-            with open(downloaded_file, "rb") as file:
-                form_data = aiohttp.FormData()
-                form_data.add_field("file", file, filename=original_file_name)
-                headers = {"Authorization": f"Bearer {gofile_api_key}"} if gofile_api_key else {}
-
-                async with session.post(
-                    upload_url,
-                    headers=headers,
-                    data=form_data
-                ) as resp:
-                    if resp.status != 200:
-                        return await sts.edit(f"Upload failed: Status code {resp.status}")
-
-                    response = await resp.json()
-                    if response["status"] == "ok":
-                        download_url = response["data"]["downloadPage"]
-
-                        # Calculate upload time
-                        upload_time = time.time() - c_time
-                        readable_upload_time = str(datetime.timedelta(seconds=int(upload_time)))
-
-                        # Prepare the caption
-                        caption = (
-                            f"📂 Filename: {display_file_name}\n"
-                            f"📏 Size: {readable_file_size}\n"
-                            f"⏱️ Duration: {duration_str}\n"
-                            f"⏳ Upload Time: {readable_upload_time}\n"
-                            f"🖇️ Download link: {download_url}"
-                        )
-
-                        # Retrieve the saved photo from the database
-                        saved_photo = await db.get_saved_photo(user_id)
-                        if saved_photo:
-                            await bot.send_photo(CHANNEL_ID, saved_photo, caption=caption)
-                        else:
-                            await bot.send_message(CHANNEL_ID, caption)
-
-                        await sts.edit(f"Upload successful!\nDownload link: {download_url}")
-                    else:
-                        await sts.edit(f"Upload failed: {response['message']}")
-
-    except Exception as e:
-        await sts.edit(f"Error during upload: {e}")
-
-    finally:
-        try:
-            if downloaded_file and os.path.exists(downloaded_file):
-                os.remove(downloaded_file)
-        except Exception as e:
-            print(f"Error deleting file: {e}")
-"""
 
 @Client.on_message(filters.command("gofilepost") & filters.chat(GROUP))
 async def gofile_upload(bot: Client, msg: Message):
@@ -3602,7 +3487,7 @@ async def gofile_upload(bot: Client, msg: Message):
 
             # Get the file size
             file_size = os.path.getsize(downloaded_file)
-            filesize_human = humanbytes(file_size)  # This assumes 'size' is a function you have for human-readable file sizes
+            filesize_human = humanbytes(file_size)
 
             # Upload the file to Gofile
             with open(downloaded_file, "rb") as file:
@@ -3628,9 +3513,9 @@ async def gofile_upload(bot: Client, msg: Message):
 
                         # Prepare the caption
                         caption = (
-                            f"📂 Filename: {display_file_name}\n"
-                            f"**Size**: {filesize_human}\n"
-                            f"⏳ Upload Time: {readable_upload_time}\n"
+                            f"📂 Filename: {display_file_name}\n\n"
+                            f"📏 Size: {filesize_human}\n\n"                         
+                            f"⏳ Upload Time: {readable_upload_time}\n\n"
                             f"🖇️ Download link: {download_url}"
                         )
 
@@ -3654,7 +3539,6 @@ async def gofile_upload(bot: Client, msg: Message):
                 os.remove(downloaded_file)
         except Exception as e:
             print(f"Error deleting file: {e}")
-
 
 
             
