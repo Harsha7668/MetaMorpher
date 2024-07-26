@@ -3602,7 +3602,7 @@ async def gofile_upload(bot: Client, msg: Message):
 
             # Get the file size
             file_size = os.path.getsize(downloaded_file)
-            filesize_human = size(file_size)  # This assumes 'size' is a function you have for human-readable file sizes
+            filesize_human = humanbytes(file_size)  # This assumes 'size' is a function you have for human-readable file sizes
 
             # Upload the file to Gofile
             with open(downloaded_file, "rb") as file:
