@@ -3547,9 +3547,6 @@ from urllib.parse import quote
 
 CHANNEL_ID = -1002038048493
 
-# Define GROUP filter as per your requirements
-GROUP = -1001234567890  # Replace with your actual group ID
-
 @Client.on_message(filters.command("gofilepost") & filters.chat(GROUP))
 async def gofile_upload(bot: Client, msg: Message):
     user_id = msg.from_user.id
