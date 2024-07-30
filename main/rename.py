@@ -1036,98 +1036,100 @@ async def attach_photo(bot, msg: Message):
         await db.update_task(task_id, "Failed")
         
 
-@Client.on_message(filters.command("changeindex") & filters.chat(GROUP))
-async def change_index(bot, msg):
+@Client.on_message(filters.command("changeindexaudio") & filters.chat(GROUP))
+async def change_index_audio(bot, msg):
     global CHANGE_INDEX_ENABLED
 
     if not CHANGE_INDEX_ENABLED:
-        return await msg.reply_text("The changeindex feature is currently disabled.")
+        return await msg.reply_text("The changeindexaudio feature is currently disabled.")
 
     reply = msg.reply_to_message
     if not reply:
-        return await msg.reply_text("Please reply to a media file with the index command\nFormat: `/changeindex a-1 s-1 -n new_name.mkv`")
+        return await msg.reply_text("Please reply to a media file with the index command\nFormat: `/changeindexaudio a-3 -n filename.mkv` (Audio)")
 
     if len(msg.command) < 3:
-        return await msg.reply_text("Please provide the index commands with a filename\nFormat: `/changeindex a-1 s-1 -n new_name.mkv`")
+        return await msg.reply_text("Please provide the index command with a filename\nFormat: `/changeindexaudio a-3 -n filename.mkv` (Audio)")
 
-    audio_index_cmd = None
-    subtitle_index_cmd = None
+    index_cmd = None
     new_name = None
 
-    # Extract index commands and new_name from the command
+    # Extract index command and output filename from the command
     for i in range(1, len(msg.command)):
         if msg.command[i] == "-n":
             new_name = " ".join(msg.command[i + 1:])  # Join all the parts after the flag
             break
 
-    for i in range(1, len(msg.command)):
-        if msg.command[i].startswith("a-"):
-            audio_index_cmd = msg.command[i]
-        elif msg.command[i].startswith("s-"):
-            subtitle_index_cmd = msg.command[i]
+    index_cmd = " ".join(msg.command[1:i])  # Get the index command before the flag
 
     if not new_name:
         return await msg.reply_text("Please provide a filename using the `-n` flag.")
 
-    if not (audio_index_cmd or subtitle_index_cmd):
-        return await msg.reply_text("Please provide at least one index command for audio or subtitle.")
+    if not index_cmd or not index_cmd.startswith("a-"):
+        return await msg.reply_text("Invalid format. Use `/changeindexaudio a-3 -n filename.mkv` for audio.")
 
     media = reply.document or reply.audio or reply.video
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the index command.")
 
+    # Add task to the database
     user_id = msg.from_user.id
-    username = msg.from_user.username
+    username = msg.from_user.username or msg.from_user.first_name
+    task_id = await db.add_task(user_id, username, "Change Index Audio", "Queued")
+    await bot.send_message(GROUP, f"Change Index Audio Task is added by {username} ({user_id})")
 
-    task_id = await db.add_task(user_id, username, 'changeindex', 'downloading', new_name)
     sts = await msg.reply_text(f"🚀 Task `{task_id}`: Downloading media... ⚡")
-
     c_time = time.time()
+
     try:
+        # Update task status
+        await db.update_task(task_id, "Downloading")
+
         # Download the media file
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
-        await db.update_task(task_id, 'downloaded')
     except Exception as e:
-        await db.update_task(task_id, f"failed: {e}")
-        await safe_edit_message(sts, f"Error downloading media: {e}")
+        await sts.edit(f"Error downloading media: {e}")
+        await db.update_task(task_id, "Failed")
         return
 
     # Output file path (temporary file)
     output_file = os.path.splitext(downloaded)[0] + "_indexed" + os.path.splitext(downloaded)[1]
 
-    ffmpeg_cmd = ['ffmpeg', '-i', downloaded]
+    index_params = index_cmd.split('-')
+    stream_type = index_params[0]
+    indexes = [int(i) - 1 for i in index_params[1:]]
 
-    if audio_index_cmd:
-        index_params = audio_index_cmd.split('-')
-        stream_type = index_params[0]
-        indexes = [int(i) - 1 for i in index_params[1:]]
-        for idx in indexes:
-            ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
+    # Construct the FFmpeg command to modify indexes
+    ffmpeg_cmd = ['ffmpeg', '-i', downloaded, '-map', '0:v']  # Always map video stream
 
-    if subtitle_index_cmd:
-        index_params = subtitle_index_cmd.split('-')
-        stream_type = index_params[0]
-        indexes = [int(i) - 1 for i in index_params[1:]]
-        for idx in indexes:
-            ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
+    for idx in indexes:
+        ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
 
-    # Copy all audio, video, and subtitle streams
-    ffmpeg_cmd.extend(['-map', '0:v?', '-map', '0:a?', '-map', '0:s?', '-c', 'copy', output_file, '-y'])
+    # Copy all subtitle streams if they exist
+    ffmpeg_cmd.extend(['-map', '0:s?'])
 
-    await db.update_task(task_id, 'changing_index')
-    await safe_edit_message(sts, "💠 Changing indexes... ⚡")
-    
+    ffmpeg_cmd.extend(['-c', 'copy', output_file, '-y'])
+
     try:
+        # Update task status for indexing
+        await db.update_task(task_id, "Changing Index")
+        await sts.edit("💠 Changing audio indexing... ⚡")
+        
         process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            await db.update_task(task_id, f"failed: FFmpeg error")
-            await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
+            await sts.edit(f"❗ FFmpeg error: {stderr.decode('utf-8')}")
+            os.remove(downloaded)
+            if os.path.exists(output_file):
+                os.remove(output_file)
+            await db.update_task(task_id, "Failed")
             return
     except Exception as e:
-        await db.update_task(task_id, f"failed: {e}")
-        await safe_edit_message(sts, f"❗ Error executing FFmpeg: {e}")
+        await sts.edit(f"Error processing media: {e}")
+        os.remove(downloaded)
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        await db.update_task(task_id, "Failed")
         return
 
     # Thumbnail handling
@@ -1136,23 +1138,25 @@ async def change_index(bot, msg):
     if thumbnail_file_id:
         try:
             file_thumb = await bot.download_media(thumbnail_file_id)
-        except Exception:
+        except Exception as e:
             file_thumb = None
 
     filesize = os.path.getsize(output_file)
     filesize_human = humanbytes(filesize)
     cap = f"{new_name}\n\n🌟 Size: {filesize_human}"
 
-    await db.update_task(task_id, 'uploading')
-    await safe_edit_message(sts, "💠 Uploading... ⚡")
+    await sts.edit("💠 Uploading... ⚡")
     c_time = time.time()
 
     try:
+        # Update task status for uploading
+        await db.update_task(task_id, "Uploading")
+
         if filesize > FILE_SIZE_LIMIT:
             file_link = await upload_to_google_drive(output_file, new_name, sts)
             button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
             await msg.reply_text(
-                f"**File successfully changed indexes and uploaded to Google Drive!**\n\n"
+                f"**File successfully changed audio index and uploaded to Google Drive!**\n\n"
                 f"**Google Drive Link**: [View File]({file_link})\n\n"
                 f"**Uploaded File**: {new_name}\n"
                 f"**Request User:** {msg.from_user.mention}\n\n"
@@ -1161,28 +1165,26 @@ async def change_index(bot, msg):
             )
         else:
             await bot.send_document(
-                msg.chat.id,
+                msg.from_user.id,
                 document=output_file,
-                file_name=new_name,
+                file_name=new_name,  # Use new_name here
                 thumb=file_thumb,
                 caption=cap,
                 progress=progress_message,
-                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+                progress_args=("💠 Upload Started... ⚡️", sts, c_time)
             )
     except Exception as e:
-        await safe_edit_message(sts, f"Error: {e}")
+        await sts.edit(f"Error uploading file: {e}")
+        await db.update_task(task_id, "Failed")
+        return
 
     # Clean up downloaded and temporary files
-    finally:
-        if os.path.exists(downloaded):
-            os.remove(downloaded)
-        if os.path.exists(output_file):
-            os.remove(output_file)
-        if file_thumb and os.path.exists(file_thumb):
-            os.remove(file_thumb)
-        await db.update_task(task_id, 'completed')
-        await sts.delete()
-
+    os.remove(downloaded)
+    os.remove(output_file)
+    if file_thumb and os.path.exists(file_thumb):
+        os.remove(file_thumb)
+    await sts.delete()
+    await db.update_task(task_id, "Completed")
 
 
     
