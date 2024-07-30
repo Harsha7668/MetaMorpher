@@ -1034,14 +1034,6 @@ async def attach_photo(bot, msg: Message):
                 os.remove(attachment_path)
 
 
-  
-  
-
-
-
-
-
-
 @Client.on_message(filters.command("changeindex") & filters.chat(GROUP))
 async def change_index(bot, msg):
     global CHANGE_INDEX_ENABLED
@@ -1135,6 +1127,16 @@ async def change_index(bot, msg):
         await db.update_task(task_id, f"failed: {e}")
         await safe_edit_message(sts, f"❗ Error executing FFmpeg: {e}")
         return
+    finally:
+        # Clean up downloaded and temporary files
+        if os.path.exists(downloaded):
+            os.remove(downloaded)
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        if file_thumb and os.path.exists(file_thumb):
+            os.remove(file_thumb)
+        await db.update_task(task_id, 'completed')
+        await sts.delete()
 
     # Thumbnail handling
     thumbnail_file_id = await db.get_thumbnail(user_id)
@@ -1176,18 +1178,16 @@ async def change_index(bot, msg):
                 progress_args=("💠 Upload Started... ⚡", sts, c_time)
             )
     except Exception as e:
-        await safe_edit_message(sts, f"Error: {e}")
+        await safe_edit_message(sts, f"Error: {e}")  
+  
 
-    # Clean up downloaded and temporary files
-    finally:
-        if os.path.exists(downloaded):
-            os.remove(downloaded)
-        if os.path.exists(output_file):
-            os.remove(output_file)
-        if file_thumb and os.path.exists(file_thumb):
-            os.remove(file_thumb)
-        await db.update_task(task_id, 'completed')
-        await sts.delete()
+
+
+
+
+
+
+        
 
 
 
