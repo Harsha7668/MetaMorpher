@@ -1069,15 +1069,16 @@ async def changemultitask(bot, msg: Message):
         os.remove(attachment_path)
     await sts.delete()
 
+
 @Client.on_message(filters.command("multitask1") & filters.chat(GROUP))
-async def changemultitasks(bot, msg: Message):
+async def changemultitask1(bot, msg: Message):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED, PHOTO_ATTACH_ENABLED
 
     if not (METADATA_ENABLED and CHANGE_INDEX_ENABLED and PHOTO_ATTACH_ENABLED):
         return await msg.reply_text("One or more required features are currently disabled.")
 
     user_id = msg.from_user.id
-    task_id = f"{user_id}_{msg.message_id}"
+    task_id = f"{user_id}_{msg.id}"
 
     # Fetch metadata titles from the database
     metadata_titles = await db.get_metadata_titles(user_id)
@@ -1107,6 +1108,7 @@ async def changemultitasks(bot, msg: Message):
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the change command.")
 
+    # Send initial message indicating download start
     sts = await msg.reply_text(f"🚀 Downloading media... ⚡\nTask ID: {task_id}")
     c_time = time.time()
     try:
@@ -1242,6 +1244,7 @@ async def changemultitasks(bot, msg: Message):
         os.remove(attachment_path)
     await sts.delete()
 
+        
 @Client.on_message(filters.command("attachphoto") & filters.chat(GROUP))
 async def attach_photo(bot, msg: Message):
     global PHOTO_ATTACH_ENABLED
