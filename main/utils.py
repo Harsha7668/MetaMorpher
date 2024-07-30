@@ -3,7 +3,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import heroku3
 import os
 
-
+"""
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
 async def progress_message(current, total, process_type, message, start, file_name, username, task_type):
     now = time.time()
@@ -31,6 +31,23 @@ async def progress_message(current, total, process_type, message, start, file_na
             )
         except Exception as e:
             print(f"Error editing message: {e}")
+"""
+
+async def progress_message(current, total, message, progress_msg, start_time, file_name, username, task_type):
+    elapsed_time = time.time() - start_time
+    speed = current / elapsed_time if elapsed_time > 0 else 0
+    progress_percent = int((current / total) * 100)
+
+    await progress_msg.edit(
+        f"{message}\n\n"
+        f"Progress: {progress_percent}%\n"
+        f"File: {file_name}\n"
+        f"User: {username}\n"
+        f"Task: {task_type}\n"
+        f"Speed: {humanbytes(speed)}/s\n"
+        f"Elapsed Time: {humanize_duration(elapsed_time)}"
+    )
+
 
 # Helper functions
 def humanbytes(size):
