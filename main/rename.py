@@ -1337,7 +1337,146 @@ async def change_index_subtitle(bot, msg):
 
 #merge command 
 # Command to start merging files
+@Client.on_message(filters.command("merge") & filters.chat(GROUP))
+async def start_merge_command(bot, msg: Message):
+    global MERGE_ENABLED
+    if not MERGE_ENABLED:
+        return await msg.reply_text("The merge feature is currently disabled.")
 
+    user_id = msg.from_user.id
+    merge_state[user_id] = {"files": [], "output_filename": None, "is_merging": False}
+
+    await msg.reply_text("Send up to 10 video/document files one by one. Once done, send `/videomerge filename`.")
+
+@Client.on_message(filters.command("videomerge") & filters.chat(GROUP))
+async def start_video_merge_command(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id not in merge_state or not merge_state[user_id]["files"]:
+        return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
+
+    output_filename = msg.text.split(' ', 1)[1].strip()  # Extract output filename from command
+    merge_state[user_id]["output_filename"] = output_filename
+    merge_state[user_id]["is_merging"] = True  # Set the flag to indicate that merging has started
+
+    # Add task to the database
+    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Merge Videos", "Queued")
+    await bot.send_message(GROUP, f"Merge Videos Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+
+    await merge_and_upload(bot, msg, task_id)
+
+@Client.on_message(filters.document | filters.video & filters.chat(GROUP))
+async def handle_media_files(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id in merge_state:
+        if merge_state[user_id].get("is_merging"):
+            await msg.reply_text("Merging process has started. No more files can be added.")
+            return
+        
+        if len(merge_state[user_id]["files"]) < 10:
+            merge_state[user_id]["files"].append(msg)
+            await msg.reply_text("File received. Send another file or use `/videomerge filename` to start merging.")
+        else:
+            await msg.reply_text("You have already sent 10 files. Use `/videomerge filename` to start merging.")
+
+async def merge_and_upload(bot, msg: Message, task_id: str):
+    user_id = msg.from_user.id
+    if user_id not in merge_state:
+        return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
+
+    files_to_merge = merge_state[user_id]["files"]
+    output_filename = merge_state[user_id].get("output_filename", "merged_output.mp4")  # Default output filename
+    output_path = f"{output_filename}"
+
+    # Update task status to "Started"
+    await db.update_task(task_id, "Started")
+    sts = await msg.reply_text(f"🚀 Task `{task_id}`: Starting merge process...")
+
+    file_paths = []
+    try:
+        # Download media files
+        for file_msg in files_to_merge:
+            file_path = await download_media(file_msg, sts)
+            file_paths.append(file_path)
+
+        input_file = "input.txt"
+        with open(input_file, "w") as f:
+            for file_path in file_paths:
+                f.write(f"file '{file_path}'\n")
+
+        # Merge videos
+        await safe_edit_message(sts, "💠 Merging videos... ⚡")
+        await merge_videos(input_file, output_path)
+
+        filesize = os.path.getsize(output_path)
+        filesize_human = humanbytes(filesize)
+        cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
+
+        await safe_edit_message(sts, "💠 Uploading... ⚡")
+
+        # Thumbnail handling
+        thumbnail_file_id = await db.get_thumbnail(user_id)
+        file_thumb = None
+        if thumbnail_file_id:
+            try:
+                file_thumb = await bot.download_media(thumbnail_file_id)
+            except Exception as e:
+                print(f"Error downloading thumbnail: {e}")
+
+        # Uploading the merged file
+        c_time = time.time()
+        if filesize > FILE_SIZE_LIMIT:
+            file_link = await upload_to_google_drive(output_path, output_filename, sts)
+            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+            await msg.reply_text(
+                f"**File successfully merged and uploaded to Google Drive!**\n\n"
+                f"**Google Drive Link**: [View File]({file_link})\n\n"
+                f"**Uploaded File**: {output_filename}\n"
+                f"**Request User**: {msg.from_user.mention}\n\n"
+                f"**Size**: {filesize_human}",
+                reply_markup=InlineKeyboardMarkup(button)
+            )
+        else:
+            await bot.send_document(
+                user_id,
+                document=output_path,
+                thumb=file_thumb,
+                caption=cap,
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡️", sts, c_time)
+            )
+
+            await msg.reply_text(
+                f"┏📥 **File Name**: {output_filename}\n"
+                f"┠💾 **Size**: {filesize_human}\n"
+                f"┠♻️ **Mode**: Merge : Video + Video\n"
+                f"┗🚹 **Request User**: {msg.from_user.mention}\n\n"
+                f"❄ **File has been sent in Bot PM!**"
+            )
+
+        # Update task status to "Completed"
+        await db.update_task(task_id, "Completed")
+
+    except Exception as e:
+        await safe_edit_message(sts, f"❌ Error: {e}")
+        await db.update_task(task_id, "Failed")
+
+    finally:
+        # Clean up temporary files
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        if os.path.exists(input_file):
+            os.remove(input_file)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        if file_thumb and os.path.exists(file_thumb):
+            os.remove(file_thumb)
+
+        # Clear merge state for the user
+        if user_id in merge_state:
+            del merge_state[user_id]
+
+        await sts.delete()
 
 
 
