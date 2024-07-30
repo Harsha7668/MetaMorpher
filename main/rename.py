@@ -535,10 +535,8 @@ async def save_photo(bot: Client, msg: Message):
     await msg.reply_text(result)
     
 
-AUTH = 6469754522
-
-# Dictionary to track ongoing processes and their stop events
-ongoing_processes = {}
+# Dictionary to track ongoing processes
+tasks = {}
 
 @Client.on_message(filters.command("mirror") & filters.chat(GROUP))
 async def mirror_to_google_drive(bot, msg: Message):
@@ -567,25 +565,32 @@ async def mirror_to_google_drive(bot, msg: Message):
     new_name = msg.text.split(" ", 1)[1]
     original_file_name = media.file_name
 
-    stop_event = asyncio.Event()
-    ongoing_processes[user_id] = stop_event
+    # Add task to the task list
+    task_id = len(tasks) + 1
+    tasks[task_id] = {
+        "user_id": user_id,
+        "username": username,
+        "task_type": "Mirror",
+        "status": "Queued"
+    }
+    
+    # Notify all users about the new task
+    await bot.send_message(GROUP, f"Mirror Task is added by {username} ({user_id})")
 
     try:
         # Show progress message for downloading
         sts = await msg.reply_text("🚀 Downloading...")
+        
+        # Update task status
+        tasks[task_id]["status"] = "Downloading"
         
         # Download the file
         downloaded_file = await bot.download_media(
             message=reply, 
             file_name=new_name, 
             progress=progress_message, 
-            progress_args=("Downloading", sts, time.time(), original_file_name, username, stop_event, "Mirror")
+            progress_args=("Downloading", sts, time.time(), original_file_name, username, "Mirror")
         )
-        
-        if stop_event.is_set():
-            del ongoing_processes[user_id]
-            await sts.edit("Process stopped.")
-            return
         
         filesize = os.path.getsize(downloaded_file)
         
@@ -593,6 +598,9 @@ async def mirror_to_google_drive(bot, msg: Message):
         await sts.edit("💠 Uploading...")
         
         start_time = time.time()
+
+        # Update task status
+        tasks[task_id]["status"] = "Uploading"
 
         # Upload file to Google Drive
         file_metadata = {'name': new_name, 'parents': [gdrive_folder_id]}
@@ -605,12 +613,8 @@ async def mirror_to_google_drive(bot, msg: Message):
             status, response = request.next_chunk()
             if status:
                 current_progress = status.progress() * 100
-                await progress_message(current_progress, 100, "Uploading to Google Drive", sts, start_time, original_file_name, username, stop_event, "Mirror")
-                if stop_event.is_set():
-                    del ongoing_processes[user_id]
-                    await sts.edit("Process stopped.")
-                    return
-
+                await progress_message(current_progress, 100, "Uploading to Google Drive", sts, start_time, original_file_name, username, "Mirror")
+        
         file_id = response.get('id')
         file_link = response.get('webViewLink')
 
@@ -633,39 +637,50 @@ async def mirror_to_google_drive(bot, msg: Message):
         )
         os.remove(downloaded_file)
         await sts.delete()
-        del ongoing_processes[user_id]
+        tasks[task_id]["status"] = "Completed"
 
     except Exception as e:
         await sts.edit(f"Error: {e}")
-        if user_id in ongoing_processes:
-            del ongoing_processes[user_id]
+        tasks[task_id]["status"] = "Failed"
 
-@Client.on_message(filters.command("stop") & filters.chat(GROUP))
-async def stop_process(bot, msg: Message):
-    user_id = msg.from_user.id
-    username = msg.from_user.username or msg.from_user.first_name  # Get the username or first name
-    
-    if user_id in AUTH:
-        if user_id in ongoing_processes:
-            ongoing_processes[user_id].set()
-            await msg.reply_text("Process stopped.")
-        else:
-            await msg.reply_text("No ongoing process to stop.")
-    else:
-        # Notify the user that they are not authorized
-        await msg.reply_text("You are not authorized to stop the process.")
-        # Notify authorized users about the unauthorized stop attempt
-        for auth_user_id in AUTH:
-            try:
-                await bot.send_message(
-                    chat_id=auth_user_id,
-                    text=f"Unauthorized stop attempt by {username} ({user_id})."
-                )
-            except Exception as e:
-                print(f"Error notifying authorized user: {e}")
+@Client.on_message(filters.command("tasklist") & filters.chat(GROUP))
+async def task_list(bot, msg: Message):
+    page = 1
+    tasks_per_page = 2
 
+    async def generate_task_list(page):
+        start = (page - 1) * tasks_per_page
+        end = start + tasks_per_page
+        task_list = list(tasks.items())[start:end]
+        text = "📄 **Task List** 📄\n\n"
+        for task_id, task_info in task_list:
+            text += (
+                f"Task ID: {task_id}\n"
+                f"User: {task_info['username']} ({task_info['user_id']})\n"
+                f"Type: {task_info['task_type']}\n"
+                f"Status: {task_info['status']}\n\n"
+            )
+        return text
 
+    text = await generate_task_list(page)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Next", callback_data=f"tasklist_next_{page}")]
+    ])
 
+    await msg.reply_text(text, reply_markup=keyboard)
+
+@Client.on_callback_query(filters.regex(r"tasklist_next_(\d+)"))
+async def tasklist_next_callback(bot, callback_query):
+    page = int(callback_query.data.split("_")[-1]) + 1
+    text = await generate_task_list(page)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Previous", callback_data=f"tasklist_prev_{page-2}"),
+         InlineKeyboardButton("Next", callback_data=f"tasklist_next_{page}")]
+    ])
+
+    await callback_query.edit_message_text(text, reply_markup=keyboard)
+
+        
 
 """
 # Command handler for /mirror
