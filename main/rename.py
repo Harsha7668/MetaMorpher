@@ -759,7 +759,7 @@ async def change_metadata(bot, msg: Message):
 
     user_id = msg.from_user.id
     username = msg.from_user.username or msg.from_user.first_name
-    
+
     # Fetch metadata titles from the database
     metadata_titles = await db.get_metadata_titles(user_id)
     video_title = metadata_titles.get('video_title', '')
@@ -776,9 +776,9 @@ async def change_metadata(bot, msg: Message):
     if len(msg.command) < 3 or msg.command[1] != "-n":
         return await msg.reply_text("Please provide the filename with the `-n` flag\nFormat: `changemetadata -n filename.mkv`")
 
-    output_filename = " ".join(msg.command[2:]).strip()
+    new_name = " ".join(msg.command[2:]).strip()
 
-    if not output_filename.lower().endswith(('.mkv', '.mp4', '.avi')):
+    if not new_name.lower().endswith(('.mkv', '.mp4', '.avi')):
         return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
 
     media = reply.document or reply.audio or reply.video
@@ -795,11 +795,11 @@ async def change_metadata(bot, msg: Message):
     try:
         # Update task status
         await db.update_task(task_id, "Downloading")
-        
+
         # Download the file
-        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time, "", username, "Change Metadata"))
-        
-        output_file = output_filename
+        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time, new_name, username, "Change Metadata"))
+
+        output_file = new_name
 
         await safe_edit_message(sts, "💠 Changing metadata... ⚡")
         try:
@@ -826,7 +826,7 @@ async def change_metadata(bot, msg: Message):
 
         filesize = os.path.getsize(output_file)
         filesize_human = humanbytes(filesize)
-        cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
+        cap = f"{output_file}\n\n🌟 Size: {filesize_human}"
 
         await safe_edit_message(sts, "💠 Uploading... ⚡")
         c_time = time.time()
@@ -835,19 +835,19 @@ async def change_metadata(bot, msg: Message):
         await db.update_task(task_id, "Uploading")
 
         if filesize > FILE_SIZE_LIMIT:
-            file_link = await upload_to_google_drive(output_file, output_filename, sts)
+            file_link = await upload_to_google_drive(output_file, new_name, sts)
             button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
             await msg.reply_text(
                 f"**File successfully changed metadata and uploaded to Google Drive!**\n\n"
                 f"**Google Drive Link**: [View File]({file_link})\n\n"
-                f"**Uploaded File**: {output_filename}\n"
+                f"**Uploaded File**: {new_name}\n"
                 f"**Request User:** {msg.from_user.mention}\n\n"
                 f"**Size**: {filesize_human}",
                 reply_markup=InlineKeyboardMarkup(button)
             )
         else:
             try:
-                await bot.send_document(msg.chat.id, document=output_file, thumb=file_thumb, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time, output_filename, username, "Change Metadata"))
+                await bot.send_document(msg.chat.id, document=output_file, thumb=file_thumb, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time, new_name, username, "Change Metadata"))
             except Exception as e:
                 return await safe_edit_message(sts, f"Error: {e}")
 
@@ -861,6 +861,7 @@ async def change_metadata(bot, msg: Message):
     except Exception as e:
         await sts.edit(f"Error: {e}")
         await db.update_task(task_id, "Failed")
+
 
 
 @Client.on_message(filters.command("attachphoto") & filters.chat(GROUP))
