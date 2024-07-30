@@ -534,9 +534,8 @@ async def save_photo(bot: Client, msg: Message):
     result = await db.save_photo(user_id, photo.file_id)
     await msg.reply_text(result)
     
-
-# Dictionary to track ongoing processes
-tasks = {}
+# Initialize your database (update URI and database_name as needed)
+db = Database(uri="your_mongodb_uri", database_name="your_database_name")
 
 @Client.on_message(filters.command("mirror") & filters.chat(GROUP))
 async def mirror_to_google_drive(bot, msg: Message):
@@ -546,7 +545,7 @@ async def mirror_to_google_drive(bot, msg: Message):
         return await msg.reply_text("The mirror feature is currently disabled.")
 
     user_id = msg.from_user.id
-    username = msg.from_user.username or msg.from_user.first_name  # Get the username or first name
+    username = msg.from_user.username or msg.from_user.first_name
     
     # Retrieve the user's Google Drive folder ID
     gdrive_folder_id = await db.get_gdrive_folder_id(user_id)
@@ -565,14 +564,8 @@ async def mirror_to_google_drive(bot, msg: Message):
     new_name = msg.text.split(" ", 1)[1]
     original_file_name = media.file_name
 
-    # Add task to the task list
-    task_id = len(tasks) + 1
-    tasks[task_id] = {
-        "user_id": user_id,
-        "username": username,
-        "task_type": "Mirror",
-        "status": "Queued"
-    }
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Mirror", "Queued")
     
     # Notify all users about the new task
     await bot.send_message(GROUP, f"Mirror Task is added by {username} ({user_id})")
@@ -582,7 +575,7 @@ async def mirror_to_google_drive(bot, msg: Message):
         sts = await msg.reply_text("🚀 Downloading...")
         
         # Update task status
-        tasks[task_id]["status"] = "Downloading"
+        await db.update_task(task_id, "Downloading")
         
         # Download the file
         downloaded_file = await bot.download_media(
@@ -600,7 +593,7 @@ async def mirror_to_google_drive(bot, msg: Message):
         start_time = time.time()
 
         # Update task status
-        tasks[task_id]["status"] = "Uploading"
+        await db.update_task(task_id, "Uploading")
 
         # Upload file to Google Drive
         file_metadata = {'name': new_name, 'parents': [gdrive_folder_id]}
@@ -637,11 +630,11 @@ async def mirror_to_google_drive(bot, msg: Message):
         )
         os.remove(downloaded_file)
         await sts.delete()
-        tasks[task_id]["status"] = "Completed"
+        await db.update_task(task_id, "Completed")
 
     except Exception as e:
         await sts.edit(f"Error: {e}")
-        tasks[task_id]["status"] = "Failed"
+        await db.update_task(task_id, "Failed")
 
 @Client.on_message(filters.command("tasklist") & filters.chat(GROUP))
 async def task_list(bot, msg: Message):
@@ -649,16 +642,14 @@ async def task_list(bot, msg: Message):
     tasks_per_page = 2
 
     async def generate_task_list(page):
-        start = (page - 1) * tasks_per_page
-        end = start + tasks_per_page
-        task_list = list(tasks.items())[start:end]
+        tasks = await db.list_tasks(page, tasks_per_page)
         text = "📄 **Task List** 📄\n\n"
-        for task_id, task_info in task_list:
+        for task in tasks:
             text += (
-                f"Task ID: {task_id}\n"
-                f"User: {task_info['username']} ({task_info['user_id']})\n"
-                f"Type: {task_info['task_type']}\n"
-                f"Status: {task_info['status']}\n\n"
+                f"Task ID: {task['_id']}\n"
+                f"User: {task['username']} ({task['user_id']})\n"
+                f"Type: {task['task_type']}\n"
+                f"Status: {task['status']}\n\n"
             )
         return text
 
@@ -680,7 +671,8 @@ async def tasklist_next_callback(bot, callback_query):
 
     await callback_query.edit_message_text(text, reply_markup=keyboard)
 
-        
+
+
 
 """
 # Command handler for /mirror
