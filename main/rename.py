@@ -897,6 +897,140 @@ async def change_metadata(bot, msg: Message):
 
 
 @Client.on_message(filters.command("attachphoto") & filters.chat(GROUP))
+async def attach_photo(bot, msg: Message):
+    global PHOTO_ATTACH_ENABLED
+
+    if not PHOTO_ATTACH_ENABLED:
+        return await msg.reply_text("Photo attachment feature is currently disabled.")
+
+    reply = msg.reply_to_message
+    if not reply:
+        return await msg.reply_text("Please reply to a media file with the attach photo command and specify the output filename\nFormat: `attachphoto -n filename.mkv`")
+
+    command_text = " ".join(msg.command[1:]).strip()
+    if "-n" not in command_text:
+        return await msg.reply_text("Please provide the output filename using the `-n` flag\nFormat: `attachphoto -n filename.mkv`")
+
+    filename_part = command_text.split('-n', 1)[1].strip()
+    new_name = filename_part if filename_part else None
+
+    if not new_name:
+        return await msg.reply_text("Please provide a valid filename\nFormat: `attachphoto -n filename.mkv`")
+
+    if not new_name.lower().endswith(('.mkv', '.mp4', '.avi')):
+        return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
+
+    media = reply.document or reply.audio or reply.video
+    if not media:
+        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the attach photo command.")
+
+    user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Attach Photo", "Queued")
+    await bot.send_message(GROUP, f"Attach Photo Task is added by {username} ({user_id})")
+
+    sts = await msg.reply_text(f"🚀 Task `{task_id}`: Downloading media... ⚡")
+    c_time = time.time()
+
+    try:
+        # Update task status
+        await db.update_task(task_id, "Downloading")
+
+        # Download the file
+        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time, new_name, username, "Attach Photo"))
+
+        # Retrieve attachment from the database
+        attachment_file_path = await db.get_attach_photo(user_id)
+        if not attachment_file_path:
+            await safe_edit_message(sts, "Please send a photo to be attached using the `setphoto` command.")
+            os.remove(downloaded)
+            return
+
+        # Ensure the attachment exists and download it if necessary
+        attachment_path = attachment_file_path
+        if not os.path.exists(attachment_path):
+            await safe_edit_message(sts, "Attachment not found.")
+            os.remove(downloaded)
+            return
+
+        output_file = new_name
+
+        await safe_edit_message(sts, "💠 Adding photo attachment... ⚡")
+        try:
+            # Function to add photo attachment (assume it's defined elsewhere)
+            add_photo_attachment(downloaded, attachment_path, output_file)
+        except Exception as e:
+            await safe_edit_message(sts, f"Error adding photo attachment: {e}")
+            os.remove(downloaded)
+            return
+
+        # Retrieve thumbnail from the database
+        thumbnail_file_id = await db.get_thumbnail(user_id)
+        file_thumb = None
+        if thumbnail_file_id:
+            try:
+                file_thumb = await bot.download_media(thumbnail_file_id)
+            except Exception:
+                pass
+        else:
+            if hasattr(media, 'thumbs') and media.thumbs:
+                try:
+                    file_thumb = await bot.download_media(media.thumbs[0].file_id)
+                except Exception:
+                    file_thumb = None
+
+        filesize = os.path.getsize(output_file)
+
+        await safe_edit_message(sts, "🔼 Uploading modified file... ⚡")
+        try:
+            # Update task status for uploading
+            await db.update_task(task_id, "Uploading")
+
+            if filesize > FILE_SIZE_LIMIT:
+                file_link = await upload_to_google_drive(output_file, new_name, sts)
+                button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+                await msg.reply_text(
+                    f"**File successfully attached photo and uploaded to Google Drive!**\n\n"
+                    f"**Google Drive Link**: [View File]({file_link})\n\n"
+                    f"**Uploaded File**: {new_name}\n"
+                    f"**Request User:** {msg.from_user.mention}\n\n"
+                    f"**Size**: {humanbytes(filesize)}",
+                    reply_markup=InlineKeyboardMarkup(button)
+                )
+            else:
+                # Send modified file to user's PM
+                await bot.send_document(
+                    msg.from_user.id,
+                    document=output_file,
+                    thumb=file_thumb,
+                    caption="Here is your file with the photo attached.",
+                    progress=progress_message,
+                    progress_args=("🔼 Upload Started... ⚡️", sts, c_time, new_name, username, "Attach Photo")
+                )
+
+                # Notify in the group about the upload
+                await msg.reply_text(
+                    f"┏📥 **File Name:** {new_name}\n"
+                    f"┠💾 **Size:** {humanbytes(filesize)}\n"
+                    f"┠♻️ **Mode:** Attach Photo\n"
+                    f"┗🚹 **Request User:** {msg.from_user.mention}\n\n"
+                    f"❄ **File has been sent to your PM in the bot!**"
+                )
+
+            await sts.delete()
+            await db.update_task(task_id, "Completed")
+        except Exception as e:
+            await sts.edit(f"Error uploading modified file: {e}")
+            await db.update_task(task_id, "Failed")
+        finally:
+            os.remove(downloaded)
+            os.remove(output_file)
+            if file_thumb and os.path.exists(file_thumb):
+                os.remove(file_thumb)
+            if os.path.exists(attachment_path):
+                os.remove(attachment_path)
 
 
   
