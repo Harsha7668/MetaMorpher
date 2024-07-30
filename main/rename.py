@@ -535,7 +535,7 @@ async def save_photo(bot: Client, msg: Message):
     await msg.reply_text(result)
     
 
-AUTH_USERS = 6469754522
+AUTH = 6469754522
 
 # Dictionary to track ongoing processes and their stop events
 ongoing_processes = {}
@@ -645,7 +645,7 @@ async def stop_process(bot, msg: Message):
     user_id = msg.from_user.id
     username = msg.from_user.username or msg.from_user.first_name  # Get the username or first name
     
-    if user_id in AUTH_USERS:
+    if user_id in AUTH:
         if user_id in ongoing_processes:
             ongoing_processes[user_id].set()
             await msg.reply_text("Process stopped.")
@@ -655,7 +655,7 @@ async def stop_process(bot, msg: Message):
         # Notify the user that they are not authorized
         await msg.reply_text("You are not authorized to stop the process.")
         # Notify authorized users about the unauthorized stop attempt
-        for auth_user_id in AUTH_USERS:
+        for auth_user_id in AUTH:
             try:
                 await bot.send_message(
                     chat_id=auth_user_id,
