@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from datetime import datetime
 from bson import ObjectId
+import time
 
 class Database:
     def __init__(self, uri, database_name):        
