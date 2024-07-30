@@ -1031,10 +1031,10 @@ async def attach_photo(bot, msg: Message):
                 os.remove(attachment_path)
             await sts.delete()
             await db.update_task(task_id, "Completed")
-
-        except Exception as e:
-            await sts.edit(f"Error uploading modified file: {e}")
-            await db.update_task(task_id, "Failed")
+    except Exception as e:
+        await sts.edit(f"Error uploading modified file: {e}")
+        await db.update_task(task_id, "Failed")
+        
 
 @Client.on_message(filters.command("changeindex") & filters.chat(GROUP))
 async def change_index(bot, msg):
