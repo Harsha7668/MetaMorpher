@@ -3,18 +3,10 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import heroku3
 import os
 
-#ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
-PROGRESS_BAR = """
-╭───[**•PROGRESS BAR•**]───⍟
-├<b>{5}</b>
-├<b>📁**PROCESS** : {1} | {2}</b>
-├<b>🚀**PERCENT** : {0}%</b>
-├<b>⚡**SPEED** : {3}</b>
-├<b>⏱️**ETA** : {4}</b>
-╰─────────────────⍟"""
 
-#ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
-async def progress_message(current, total, ud_type, message, start):
+
+
+async def progress_message(current, total, ud_type, message, start, file_name, username, user_id):
     now = time.time()
     diff = now - start
     if round(diff % 5.00) == 0 or current == total:
@@ -28,51 +20,59 @@ async def progress_message(current, total, ud_type, message, start):
         estimated_total_time = TimeFormatter(estimated_total_time_ms)
 
         progress = "{0}{1}".format(
-            ''.join(["▣" for i in range(math.floor(percentage / 5))]),
-            ''.join(["▢" for i in range(20 - math.floor(percentage / 5))])
+            ''.join(["■" for i in range(math.floor(percentage / 5))]),
+            ''.join(["□" for i in range(20 - math.floor(percentage / 5))])
         )
-        tmp = progress + f"\nProgress: {round(percentage, 2)}%\n{humanbytes(current)} of {humanbytes(total)}\nSpeed: {speed}\nETA: {estimated_total_time if estimated_total_time != '' else '0 s'}"
+
+        progress_text = (
+            f"Downloading:\n{file_name}\n"
+            f"Size: {humanbytes(total)}\n"
+            f"Elapsed: {elapsed_time}\n"
+            f"By: {username}\n"
+            f"/stop_{user_id}\n\n"
+            f"Progress: {round(percentage, 2)}%\n"
+            f"{humanbytes(current)} of {humanbytes(total)}\n"
+            f"Speed: {speed}\n"
+            f"ETA: {estimated_total_time if estimated_total_time else '0 s'}\n\n"
+            f"{progress}"
+        )
 
         try:
             await message.edit(
-                text=f"{ud_type}\n\n" + PROGRESS_BAR.format(
-                    round(percentage, 2),
-                    humanbytes(current),
-                    humanbytes(total),
-                    speed,
-                    estimated_total_time if estimated_total_time != '' else '0 s',
-                    progress
-                ),
+                text=progress_text,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌟 Jᴏɪɴ Us 🌟", url="https://t.me/Sunrises24botupdates")]])
             )
         except Exception as e:
             print(f"Error editing message: {e}")
 
+# Helper functions
+def humanbytes(size):
+    # Converts size in bytes to a human-readable format
+    if not size:
+        return ""
+    power = 2**10
+    n = 0
+    power_labels = {0: '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti'}
+    while size > power:
+        size /= power
+        n += 1
+    return f"{round(size, 2)} {power_labels[n]}B"
 
-#ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
 def TimeFormatter(milliseconds: int) -> str:
     seconds, milliseconds = divmod(milliseconds, 1000)
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     days, hours = divmod(hours, 24)
-    tmp = ((str(days) + "d, ") if days else "") + \
-          ((str(hours) + "h, ") if hours else "") + \
-          ((str(minutes) + "m, ") if minutes else "") + \
-          ((str(seconds) + "s, ") if seconds else "") + \
-          ((str(milliseconds) + "ms, ") if milliseconds else "")
-    return tmp[:-2]
+    tmp = (
+        (f"{days}d, " if days else "") +
+        (f"{hours}h, " if hours else "") +
+        (f"{minutes}m, " if minutes else "") +
+        (f"{seconds}s" if seconds else "")
+    )
+    return tmp
+
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
-def humanbytes(size):
-    if not size:
-        return ""
-    power = 2**10
-    n = 0
-    Dic_powerN = {0: ' ', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
-    while size > power:
-        size /= power
-        n += 1
-    return str(round(size, 2)) + " " + Dic_powerN[n] + 'B'
 
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
