@@ -1038,6 +1038,159 @@ async def attach_photo(bot, msg: Message):
   
 
 
+
+
+
+
+@Client.on_message(filters.command("changeindex") & filters.chat(GROUP))
+async def change_index(bot, msg):
+    global CHANGE_INDEX_ENABLED
+
+    if not CHANGE_INDEX_ENABLED:
+        return await msg.reply_text("The changeindex feature is currently disabled.")
+
+    reply = msg.reply_to_message
+    if not reply:
+        return await msg.reply_text("Please reply to a media file with the index command\nFormat: `/changeindex a-1 s-1 -n new_name.mkv`")
+
+    if len(msg.command) < 3:
+        return await msg.reply_text("Please provide the index commands with a filename\nFormat: `/changeindex a-1 s-1 -n new_name.mkv`")
+
+    audio_index_cmd = None
+    subtitle_index_cmd = None
+    output_filename = None
+
+    # Extract index commands and output filename from the command
+    for i in range(1, len(msg.command)):
+        if msg.command[i] == "-n":
+            output_filename = " ".join(msg.command[i + 1:])  # Join all the parts after the flag
+            break
+
+    for i in range(1, len(msg.command)):
+        if msg.command[i].startswith("a-"):
+            audio_index_cmd = msg.command[i]
+        elif msg.command[i].startswith("s-"):
+            subtitle_index_cmd = msg.command[i]
+
+    if not output_filename:
+        return await msg.reply_text("Please provide a filename using the `-n` flag.")
+
+    if not (audio_index_cmd or subtitle_index_cmd):
+        return await msg.reply_text("Please provide at least one index command for audio or subtitle.")
+
+    media = reply.document or reply.audio or reply.video
+    if not media:
+        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the index command.")
+
+    user_id = msg.from_user.id
+    username = msg.from_user.username
+
+    task_id = await db.add_task(user_id, username, 'changeindex', 'downloading', output_filename)
+    sts = await msg.reply_text(f"🚀 Task `{task_id}`: Downloading media... ⚡")
+
+    c_time = time.time()
+    try:
+        # Download the media file
+        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+        await db.update_task(task_id, 'downloaded')
+    except Exception as e:
+        await db.update_task(task_id, f"failed: {e}")
+        await safe_edit_message(sts, f"Error downloading media: {e}")
+        return
+
+    # Output file path (temporary file)
+    output_file = os.path.splitext(downloaded)[0] + "_indexed" + os.path.splitext(downloaded)[1]
+
+    ffmpeg_cmd = ['ffmpeg', '-i', downloaded]
+
+    if audio_index_cmd:
+        index_params = audio_index_cmd.split('-')
+        stream_type = index_params[0]
+        indexes = [int(i) - 1 for i in index_params[1:]]
+        for idx in indexes:
+            ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
+
+    if subtitle_index_cmd:
+        index_params = subtitle_index_cmd.split('-')
+        stream_type = index_params[0]
+        indexes = [int(i) - 1 for i in index_params[1:]]
+        for idx in indexes:
+            ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
+
+    # Copy all audio, video, and subtitle streams
+    ffmpeg_cmd.extend(['-map', '0:v?', '-map', '0:a?', '-map', '0:s?', '-c', 'copy', output_file, '-y'])
+
+    await db.update_task(task_id, 'changing_index')
+    await safe_edit_message(sts, "💠 Changing indexes... ⚡")
+    
+    try:
+        process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            await db.update_task(task_id, f"failed: FFmpeg error")
+            await safe_edit_message(sts, f"❗ FFmpeg error: {stderr.decode('utf-8')}")
+            return
+    except Exception as e:
+        await db.update_task(task_id, f"failed: {e}")
+        await safe_edit_message(sts, f"❗ Error executing FFmpeg: {e}")
+        return
+
+    # Thumbnail handling
+    thumbnail_file_id = await db.get_thumbnail(user_id)
+    file_thumb = None
+    if thumbnail_file_id:
+        try:
+            file_thumb = await bot.download_media(thumbnail_file_id)
+        except Exception as e:
+            file_thumb = None
+
+    filesize = os.path.getsize(output_file)
+    filesize_human = humanbytes(filesize)
+    cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
+
+    await db.update_task(task_id, 'uploading')
+    await safe_edit_message(sts, "💠 Uploading... ⚡")
+    c_time = time.time()
+
+    try:
+        if filesize > FILE_SIZE_LIMIT:
+            file_link = await upload_to_google_drive(output_file, output_filename, sts)
+            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+            await msg.reply_text(
+                f"**File successfully changed indexes and uploaded to Google Drive!**\n\n"
+                f"**Google Drive Link**: [View File]({file_link})\n\n"
+                f"**Uploaded File**: {output_filename}\n"
+                f"**Request User:** {msg.from_user.mention}\n\n"
+                f"**Size**: {filesize_human}",
+                reply_markup=InlineKeyboardMarkup(button)
+            )
+        else:
+            await bot.send_document(
+                msg.chat.id,
+                document=output_file,
+                file_name=output_filename,
+                thumb=file_thumb,
+                caption=cap,
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+            )
+    except Exception as e:
+        await safe_edit_message(sts, f"Error: {e}")
+
+    # Clean up downloaded and temporary files
+    finally:
+        if os.path.exists(downloaded):
+            os.remove(downloaded)
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        if file_thumb and os.path.exists(file_thumb):
+            os.remove(file_thumb)
+        await db.update_task(task_id, 'completed')
+        await sts.delete()
+
+
+
 #merge command 
 # Command to start merging files
 # Command to start merging files
