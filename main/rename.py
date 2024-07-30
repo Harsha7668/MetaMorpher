@@ -535,7 +535,7 @@ async def save_photo(bot: Client, msg: Message):
     await msg.reply_text(result)
 
 
-# Dictionary to track ongoing processes
+# Dictionary to track ongoing processes and their stop events
 ongoing_processes = {}
 
 @Client.on_message(filters.command("mirror") & filters.chat(GROUP))
@@ -565,22 +565,22 @@ async def mirror_to_google_drive(bot, msg: Message):
     new_name = msg.text.split(" ", 1)[1]
     original_file_name = media.file_name
 
+    stop_event = asyncio.Event()
+    ongoing_processes[user_id] = stop_event
+
     try:
         # Show progress message for downloading
         sts = await msg.reply_text("🚀 Downloading...")
-        
-        # Track the ongoing process
-        ongoing_processes[user_id] = {"status": "downloading", "message": sts}
         
         # Download the file
         downloaded_file = await bot.download_media(
             message=reply, 
             file_name=new_name, 
             progress=progress_message, 
-            progress_args=("Downloading", sts, time.time(), original_file_name, username, user_id)
+            progress_args=("Downloading", sts, time.time(), original_file_name, username, stop_event)
         )
         
-        if ongoing_processes[user_id]["status"] == "stopped":
+        if stop_event.is_set():
             del ongoing_processes[user_id]
             await sts.edit("Process stopped.")
             return
@@ -589,7 +589,6 @@ async def mirror_to_google_drive(bot, msg: Message):
         
         # Once downloaded, update the message to indicate uploading
         await sts.edit("💠 Uploading...")
-        ongoing_processes[user_id]["status"] = "uploading"
         
         start_time = time.time()
 
@@ -604,8 +603,8 @@ async def mirror_to_google_drive(bot, msg: Message):
             status, response = request.next_chunk()
             if status:
                 current_progress = status.progress() * 100
-                await progress_message(current_progress, 100, "Uploading to Google Drive", sts, start_time, original_file_name, username, user_id)
-                if ongoing_processes[user_id]["status"] == "stopped":
+                await progress_message(current_progress, 100, "Uploading to Google Drive", sts, start_time, original_file_name, username, stop_event)
+                if stop_event.is_set():
                     del ongoing_processes[user_id]
                     await sts.edit("Process stopped.")
                     return
@@ -643,11 +642,12 @@ async def mirror_to_google_drive(bot, msg: Message):
 async def stop_process(bot, msg: Message):
     user_id = msg.from_user.id
     if user_id in ongoing_processes:
-        ongoing_processes[user_id]["status"] = "stopped"
+        ongoing_processes[user_id].set()
         await msg.reply_text("Process stopped.")
     else:
         await msg.reply_text("No ongoing process to stop.")
-        
+
+
 """
 # Command handler for /mirror
 @Client.on_message(filters.command("mirror") & filters.chat(GROUP))
