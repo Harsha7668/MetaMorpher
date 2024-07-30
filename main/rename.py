@@ -534,6 +534,74 @@ async def save_photo(bot: Client, msg: Message):
     result = await db.save_photo(user_id, photo.file_id)
     await msg.reply_text(result)
     
+async def generate_task_list(page, tasks_per_page):
+    tasks = await db.list_tasks(page, tasks_per_page)
+    if not tasks:
+        return "📄 **Task List** 📄\n\nNo tasks available."
+
+    text = "📄 **Task List** 📄\n\n"
+    for task in tasks:
+        text += (
+            f"Task ID: {task['_id']}\n"
+            f"User: {task['username']} ({task['user_id']})\n"
+            f"Type: {task['task_type']}\n"
+            f"Status: {task['status']}\n\n"
+        )
+    return text
+
+@Client.on_message(filters.command("tasklist") & filters.chat(GROUP))
+async def task_list(bot, msg: Message):
+    page = 1
+    tasks_per_page = 2
+    text = await generate_task_list(page, tasks_per_page)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Refresh", callback_data="tasklist_refresh"),
+         InlineKeyboardButton("Next", callback_data=f"tasklist_next_{page}")]
+    ])
+    await msg.reply_text(text, reply_markup=keyboard)
+
+@Client.on_callback_query(filters.regex(r"tasklist_(next|prev)_(\d+)"))
+async def tasklist_navigation_callback(bot, callback_query):
+    action, page = callback_query.data.split("_")[-2:]
+    page = int(page)
+
+    if action == 'next':
+        page += 1
+    elif action == 'prev':
+        page -= 1
+
+    tasks_per_page = 2
+    text = await generate_task_list(page, tasks_per_page)
+
+    # Handle button visibility
+    prev_button = InlineKeyboardButton("Previous", callback_data=f"tasklist_prev_{page-1}") if page > 1 else None
+    next_button = InlineKeyboardButton("Next", callback_data=f"tasklist_next_{page+1}")
+    refresh_button = InlineKeyboardButton("Refresh", callback_data="tasklist_refresh")
+
+    keyboard = InlineKeyboardMarkup([
+        [prev_button, next_button] if prev_button else [next_button],
+        [refresh_button]
+    ])
+
+    await callback_query.edit_message_text(text, reply_markup=keyboard)
+
+@Client.on_callback_query(filters.regex(r"tasklist_refresh"))
+async def tasklist_refresh_callback(bot, callback_query):
+    page = 1  # Refresh should always show the first page
+    tasks_per_page = 2
+    text = await generate_task_list(page, tasks_per_page)
+
+    # Handle button visibility
+    refresh_button = InlineKeyboardButton("Refresh", callback_data="tasklist_refresh")
+    next_button = InlineKeyboardButton("Next", callback_data=f"tasklist_next_{page + 1}")
+
+    keyboard = InlineKeyboardMarkup([
+        [refresh_button, next_button]
+    ])
+
+    await callback_query.edit_message_text(text, reply_markup=keyboard)
+
+
 
 @Client.on_message(filters.command("mirror") & filters.chat(GROUP))
 async def mirror_to_google_drive(bot, msg: Message):
@@ -633,42 +701,6 @@ async def mirror_to_google_drive(bot, msg: Message):
     except Exception as e:
         await sts.edit(f"Error: {e}")
         await db.update_task(task_id, "Failed")
-
-@Client.on_message(filters.command("tasklist") & filters.chat(GROUP))
-async def task_list(bot, msg: Message):
-    page = 1
-    tasks_per_page = 2
-
-    async def generate_task_list(page):
-        tasks = await db.list_tasks(page, tasks_per_page)
-        text = "📄 **Task List** 📄\n\n"
-        for task in tasks:
-            text += (
-                f"Task ID: {task['_id']}\n"
-                f"User: {task['username']} ({task['user_id']})\n"
-                f"Type: {task['task_type']}\n"
-                f"Status: {task['status']}\n\n"
-            )
-        return text
-
-    text = await generate_task_list(page)
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Next", callback_data=f"tasklist_next_{page}")]
-    ])
-
-    await msg.reply_text(text, reply_markup=keyboard)
-
-@Client.on_callback_query(filters.regex(r"tasklist_next_(\d+)"))
-async def tasklist_next_callback(bot, callback_query):
-    page = int(callback_query.data.split("_")[-1]) + 1
-    text = await generate_task_list(page)
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Previous", callback_data=f"tasklist_prev_{page-2}"),
-         InlineKeyboardButton("Next", callback_data=f"tasklist_next_{page}")]
-    ])
-
-    await callback_query.edit_message_text(text, reply_markup=keyboard)
-
 
 #Rename Command
 @Client.on_message(filters.command("rename") & filters.chat(GROUP))
