@@ -4,9 +4,9 @@ import heroku3
 import os
 
 
+#ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
 
-
-async def progress_message(current, total, ud_type, message, start, file_name, username, stop_event):
+async def progress_message(current, total, ud_type, message, start, file_name, username, stop_event, process_type):
     now = time.time()
     diff = now - start
     if round(diff % 5.00) == 0 or current == total:
@@ -25,11 +25,11 @@ async def progress_message(current, total, ud_type, message, start, file_name, u
         )
 
         progress_text = (
-            f"Downloading:\n{file_name}\n"
+            f"{process_type} Process:\n{file_name}\n"
             f"Size: {humanbytes(total)}\n"
             f"Elapsed: {elapsed_time}\n"
             f"By: {username}\n"
-            f"/stop_{message.chat.id}\n\n"
+            f"/stop\n\n"
             f"Progress: {round(percentage, 2)}%\n"
             f"{humanbytes(current)} of {humanbytes(total)}\n"
             f"Speed: {speed}\n"
@@ -73,10 +73,8 @@ def TimeFormatter(milliseconds: int) -> str:
         (f"{seconds}s" if seconds else "")
     )
     return tmp
-    
 
 
-#ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
 
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
