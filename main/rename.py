@@ -1344,7 +1344,7 @@ async def start_merge_command(bot, msg: Message):
         return await msg.reply_text("The merge feature is currently disabled.")
 
     user_id = msg.from_user.id
-    merge_state[user_id] = {"files": [], "output_filename": None, "is_merging": False}
+    merge_state[user_id] = {"files": [], "new_name": None, "is_merging": False}
 
     await msg.reply_text("Send up to 10 video/document files one by one. Once done, send `/videomerge filename`.")
 
@@ -1354,15 +1354,11 @@ async def start_video_merge_command(bot, msg: Message):
     if user_id not in merge_state or not merge_state[user_id]["files"]:
         return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
 
-    output_filename = msg.text.split(' ', 1)[1].strip()  # Extract output filename from command
-    merge_state[user_id]["output_filename"] = output_filename
+    new_name = msg.text.split(' ', 1)[1].strip()  # Extract new name from command
+    merge_state[user_id]["new_name"] = new_name
     merge_state[user_id]["is_merging"] = True  # Set the flag to indicate that merging has started
 
-    # Add task to the database
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Merge Videos", "Queued")
-    await bot.send_message(GROUP, f"Merge Videos Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
-
-    await merge_and_upload(bot, msg, task_id)
+    await merge_and_upload(bot, msg)
 
 @Client.on_message(filters.document | filters.video & filters.chat(GROUP))
 async def handle_media_files(bot, msg: Message):
@@ -1377,23 +1373,28 @@ async def handle_media_files(bot, msg: Message):
             await msg.reply_text("File received. Send another file or use `/videomerge filename` to start merging.")
         else:
             await msg.reply_text("You have already sent 10 files. Use `/videomerge filename` to start merging.")
-
-async def merge_and_upload(bot, msg: Message, task_id: str):
+            
+async def merge_and_upload(bot, msg: Message):
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+
     if user_id not in merge_state:
         return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
 
     files_to_merge = merge_state[user_id]["files"]
-    output_filename = merge_state[user_id].get("output_filename", "merged_output.mp4")  # Default output filename
-    output_path = f"{output_filename}"
+    new_name = merge_state[user_id].get("new_name", "merged_output.mp4")  # Default new name
+    output_path = f"{new_name}"
 
-    # Update task status to "Started"
-    await db.update_task(task_id, "Started")
-    sts = await msg.reply_text(f"🚀 Task `{task_id}`: Starting merge process...")
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Merge", "Queued")
 
-    file_paths = []
+    # Notify all users about the new task
+    await bot.send_message(GROUP, f"Merge Task is added by {username} ({user_id})")
+
+    sts = await msg.reply_text("🚀 Starting merge process...")
+
     try:
-        # Download media files
+        file_paths = []
         for file_msg in files_to_merge:
             file_path = await download_media(file_msg, sts)
             file_paths.append(file_path)
@@ -1403,15 +1404,14 @@ async def merge_and_upload(bot, msg: Message, task_id: str):
             for file_path in file_paths:
                 f.write(f"file '{file_path}'\n")
 
-        # Merge videos
-        await safe_edit_message(sts, "💠 Merging videos... ⚡")
+        await sts.edit("💠 Merging videos... ⚡")
         await merge_videos(input_file, output_path)
 
         filesize = os.path.getsize(output_path)
         filesize_human = humanbytes(filesize)
-        cap = f"{output_filename}\n\n🌟 Size: {filesize_human}"
+        cap = f"{new_name}\n\n🌟 Size: {filesize_human}"
 
-        await safe_edit_message(sts, "💠 Uploading... ⚡")
+        await sts.edit("💠 Uploading... ⚡")
 
         # Thumbnail handling
         thumbnail_file_id = await db.get_thumbnail(user_id)
@@ -1422,17 +1422,20 @@ async def merge_and_upload(bot, msg: Message, task_id: str):
             except Exception as e:
                 print(f"Error downloading thumbnail: {e}")
 
+        # Update task status to uploading
+        await db.update_task(task_id, "Uploading")
+
         # Uploading the merged file
         c_time = time.time()
         if filesize > FILE_SIZE_LIMIT:
-            file_link = await upload_to_google_drive(output_path, output_filename, sts)
+            file_link = await upload_to_google_drive(output_path, new_name, sts)
             button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
             await msg.reply_text(
-                f"**File successfully merged and uploaded to Google Drive!**\n\n"
-                f"**Google Drive Link**: [View File]({file_link})\n\n"
-                f"**Uploaded File**: {output_filename}\n"
-                f"**Request User**: {msg.from_user.mention}\n\n"
-                f"**Size**: {filesize_human}",
+                f"File successfully merged and uploaded to Google Drive!\n\n"
+                f"Google Drive Link: [View File]({file_link})\n\n"
+                f"Uploaded File: {new_name}\n"
+                f"Request User: {msg.from_user.mention}\n\n"
+                f"Size: {filesize_human}",
                 reply_markup=InlineKeyboardMarkup(button)
             )
         else:
@@ -1442,22 +1445,22 @@ async def merge_and_upload(bot, msg: Message, task_id: str):
                 thumb=file_thumb,
                 caption=cap,
                 progress=progress_message,
-                progress_args=("💠 Upload Started... ⚡️", sts, c_time)
+                progress_args=("💠 Upload Started... ⚡", sts, c_time)
             )
 
             await msg.reply_text(
-                f"┏📥 **File Name**: {output_filename}\n"
-                f"┠💾 **Size**: {filesize_human}\n"
-                f"┠♻️ **Mode**: Merge : Video + Video\n"
-                f"┗🚹 **Request User**: {msg.from_user.mention}\n\n"
+                f"┏📥 **File Name:** {new_name}\n"
+                f"┠💾 **Size:** {filesize_human}\n"
+                f"┠♻️ **Mode:** Merge : Video + Video\n"
+                f"┗🚹 **Request User:** {msg.from_user.mention}\n\n"
                 f"❄ **File has been sent in Bot PM!**"
             )
 
-        # Update task status to "Completed"
+        # Update task status to completed
         await db.update_task(task_id, "Completed")
 
     except Exception as e:
-        await safe_edit_message(sts, f"❌ Error: {e}")
+        await sts.edit(f"❌ Error: {e}")
         await db.update_task(task_id, "Failed")
 
     finally:
