@@ -639,7 +639,7 @@ async def mirror_to_google_drive(bot, msg: Message):
         if user_id in ongoing_processes:
             del ongoing_processes[user_id]
 
-@Client.on_message(filters.command("stop"))
+@Client.on_message(filters.command("stop") & filters.chat(GROUP))
 async def stop_process(bot, msg: Message):
     user_id = msg.from_user.id
     if user_id in ongoing_processes:
