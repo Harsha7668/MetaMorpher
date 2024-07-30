@@ -20,6 +20,8 @@ class Database:
         self.photo_col = self.db['photos']
         self.tasks_col = self.db['tasks']  # New collection for tasks
 
+   
+
     async def add_task(self, user_id, username, task_type, status):
         task_id = await self.tasks_col.insert_one({
             "user_id": user_id,
@@ -29,6 +31,8 @@ class Database:
             "timestamp": time.time()
         })
         return task_id.inserted_id
+
+    
 
     async def update_task(self, task_id, status):
         await self.tasks_col.update_one(
@@ -41,9 +45,10 @@ class Database:
 
     async def list_tasks(self, page=1, tasks_per_page=2):
         skip = (page - 1) * tasks_per_page
-        tasks_cursor = self.tasks_col.find().skip(skip).limit(tasks_per_page)
+        tasks_cursor = self.tasks_col.find().sort("timestamp", -1).skip(skip).limit(tasks_per_page)
         tasks = await tasks_cursor.to_list(length=tasks_per_page)
         return tasks
+    
 
     async def save_photo(self, user_id, file_id):
         try:
