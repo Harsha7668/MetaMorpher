@@ -3,6 +3,7 @@ from config import DATABASE_NAME, DATABASE_URI
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from datetime import datetime
+from bson import ObjectId
 
 class Database:
     def __init__(self, uri, database_name):        
@@ -16,7 +17,32 @@ class Database:
         self.user_quality_selection_col = self.db['user_quality_selection']
         self.file_data_col = self.db['file_data']
         self.photo_col = self.db['photos']
+        self.tasks_col = self.db['tasks']  # New collection for tasks
 
+    async def add_task(self, user_id, username, task_type, status):
+        task_id = await self.tasks_col.insert_one({
+            "user_id": user_id,
+            "username": username,
+            "task_type": task_type,
+            "status": status,
+            "timestamp": time.time()
+        })
+        return task_id.inserted_id
+
+    async def update_task(self, task_id, status):
+        await self.tasks_col.update_one(
+            {"_id": ObjectId(task_id)},
+            {"$set": {"status": status}}
+        )
+
+    async def get_task(self, task_id):
+        return await self.tasks_col.find_one({"_id": ObjectId(task_id)})
+
+    async def list_tasks(self, page=1, tasks_per_page=2):
+        skip = (page - 1) * tasks_per_page
+        tasks_cursor = self.tasks_col.find().skip(skip).limit(tasks_per_page)
+        tasks = await tasks_cursor.to_list(length=tasks_per_page)
+        return tasks
 
     async def save_photo(self, user_id, file_id):
         try:
@@ -433,6 +459,9 @@ class Database:
         await self.banned_col.drop()
         await self.user_quality_selection_col.drop()
         await self.file_data_col.drop()
+        await self.photo_col.drop()
+        await self.tasks_col.drop()  
+        
 
                 
     async def get_all_user_ids(self):
