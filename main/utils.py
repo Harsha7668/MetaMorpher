@@ -6,7 +6,7 @@ import os
 
 
 
-async def progress_message(current, total, ud_type, message, start, file_name, username, user_id):
+async def progress_message(current, total, ud_type, message, start, file_name, username, stop_event):
     now = time.time()
     diff = now - start
     if round(diff % 5.00) == 0 or current == total:
@@ -29,7 +29,7 @@ async def progress_message(current, total, ud_type, message, start, file_name, u
             f"Size: {humanbytes(total)}\n"
             f"Elapsed: {elapsed_time}\n"
             f"By: {username}\n"
-            f"/stop_{user_id}\n\n"
+            f"/stop_{message.chat.id}\n\n"
             f"Progress: {round(percentage, 2)}%\n"
             f"{humanbytes(current)} of {humanbytes(total)}\n"
             f"Speed: {speed}\n"
@@ -44,6 +44,9 @@ async def progress_message(current, total, ud_type, message, start, file_name, u
             )
         except Exception as e:
             print(f"Error editing message: {e}")
+
+        if stop_event.is_set():
+            raise Exception("Process stopped by user")
 
 # Helper functions
 def humanbytes(size):
@@ -70,6 +73,7 @@ def TimeFormatter(milliseconds: int) -> str:
         (f"{seconds}s" if seconds else "")
     )
     return tmp
+    
 
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
