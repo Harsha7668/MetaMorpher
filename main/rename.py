@@ -1308,7 +1308,148 @@ async def change_index_subtitle(bot, msg):
 #merge command 
 # Command to start merging files
 # Command to start merging files
+@Client.on_message(filters.command("merge") & filters.chat(GROUP))
+async def start_merge_command(bot, msg: Message):
+    global MERGE_ENABLED
+    if not MERGE_ENABLED:
+        return await msg.reply_text("The merge feature is currently disabled.")
 
+    user_id = msg.from_user.id
+    merge_state[user_id] = {"files": [], "output_filename": None, "is_merging": False}
+
+    # Add task to the database
+    username = msg.from_user.username or msg.from_user.first_name
+    task_id = await db.add_task(user_id, username, "Video Merge", "Queued")
+    await bot.send_message(GROUP, f"Video Merge Task is added by {username} ({user_id})")
+
+    await msg.reply_text("Send up to 10 video/document files one by one. Once done, send `/videomerge filename`.")
+
+@Client.on_message(filters.command("videomerge") & filters.chat(GROUP))
+async def start_video_merge_command(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id not in merge_state or not merge_state[user_id]["files"]:
+        return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
+
+    new_name = msg.text.split(' ', 1)[1].strip()  # Extract output filename from command
+    merge_state[user_id]["output_filename"] = new_name
+    merge_state[user_id]["is_merging"] = True  # Set the flag to indicate that merging has started
+
+    await merge_and_upload(bot, msg)
+
+@Client.on_message(filters.document | filters.video & filters.chat(GROUP))
+async def handle_media_files(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id in merge_state:
+        if merge_state[user_id].get("is_merging"):
+            await msg.reply_text("Merging process has started. No more files can be added.")
+            return
+        
+        if len(merge_state[user_id]["files"]) < 10:
+            merge_state[user_id]["files"].append(msg)
+            await msg.reply_text("File received. Send another file or use `/videomerge filename` to start merging.")
+        else:
+            await msg.reply_text("You have already sent 10 files. Use `/videomerge filename` to start merging.")
+            
+async def merge_and_upload(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id not in merge_state:
+        return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
+
+    files_to_merge = merge_state[user_id]["files"]
+    new_name = merge_state[user_id].get("output_filename", "merged_output.mp4")  # Default output filename
+    output_path = f"{new_name}"
+
+    # Update task status to "Started"
+    await db.update_task(user_id, "Video Merge", "Started")
+
+    sts = await msg.reply_text("🚀 Starting merge process...")
+
+    try:
+        file_paths = []
+        for file_msg in files_to_merge:
+            file_path = await download_media(file_msg, sts)
+            file_paths.append(file_path)
+
+        input_file = "input.txt"
+        with open(input_file, "w") as f:
+            for file_path in file_paths:
+                f.write(f"file '{file_path}'\n")
+
+        await sts.edit("💠 Merging videos... ⚡")
+        await merge_videos(input_file, output_path)
+
+        filesize = os.path.getsize(output_path)
+        filesize_human = humanbytes(filesize)
+        cap = f"{new_name}\n\n🌟 Size: {filesize_human}"
+
+        await sts.edit("💠 Uploading... ⚡")
+
+        # Thumbnail handling
+        thumbnail_file_id = await db.get_thumbnail(user_id)
+        file_thumb = None
+        if thumbnail_file_id:
+            try:
+                file_thumb = await bot.download_media(thumbnail_file_id)
+            except Exception as e:
+                print(f"Error downloading thumbnail: {e}")
+
+        # Uploading the merged file
+        c_time = time.time()
+        if filesize > FILE_SIZE_LIMIT:
+            file_link = await upload_to_google_drive(output_path, new_name, sts)
+            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+            await msg.reply_text(
+                f"File successfully merged and uploaded to Google Drive!\n\n"
+                f"Google Drive Link: [View File]({file_link})\n\n"
+                f"Uploaded File: {new_name}\n"
+                f"Request User: {msg.from_user.mention}\n\n"
+                f"Size: {filesize_human}",
+                reply_markup=InlineKeyboardMarkup(button)
+            )
+        else:
+            await bot.send_document(
+                user_id,
+                document=output_path,
+                thumb=file_thumb,
+                caption=cap,
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+            )
+
+            await msg.reply_text(
+                f"┏📥 **File Name:** {new_name}\n"
+                f"┠💾 **Size:** {filesize_human}\n"
+                f"┠♻️ **Mode:** Merge : Video + Video\n"
+                f"┗🚹 **Request User:** {msg.from_user.mention}\n\n"
+                f"❄ **File has been sent in Bot PM!**"
+            )
+
+        # Update task status to "Completed"
+        await db.update_task(user_id, "Video Merge", "Completed")
+
+    except Exception as e:
+        await sts.edit(f"❌ Error: {e}")
+
+        # Update task status to "Failed"
+        await db.update_task(user_id, "Video Merge", "Failed")
+
+    finally:
+        # Clean up temporary files
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        if os.path.exists(input_file):
+            os.remove(input_file)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        if file_thumb and os.path.exists(file_thumb):
+            os.remove(file_thumb)
+
+        # Clear merge state for the user
+        if user_id in merge_state:
+            del merge_state[user_id]
+
+        await sts.delete()
 
 
 
@@ -1329,15 +1470,22 @@ async def linktofile(bot, msg: Message):
     sts = await msg.reply_text("🚀 Downloading... ⚡")
     c_time = time.time()
 
+    # Add task to the database
+    user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+    task_id = await db.add_task(user_id, username, "Leech", "Started")
+    
     if reply.text and ("seedr" in reply.text or "workers" in reply.text):
-        await handle_link_download(bot, msg, reply.text, new_name, media, sts, c_time)
+        await handle_link_download(bot, msg, reply.text, new_name, media, sts, c_time, task_id)
     else:
         if not media:
+            await db.update_task(user_id, "Leech", "Failed")
             return await msg.reply_text("Please reply to a valid file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
 
         try:
             downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
         except RPCError as e:
+            await db.update_task(user_id, "Leech", "Failed")
             return await sts.edit(f"Download failed: {e}")
 
         filesize = humanbytes(os.path.getsize(downloaded))
@@ -1346,6 +1494,7 @@ async def linktofile(bot, msg: Message):
             try:
                 cap = CAPTION.format(file_name=new_name, file_size=filesize)
             except KeyError as e:
+                await db.update_task(user_id, "Leech", "Failed")
                 return await sts.edit(text=f"Caption error: unexpected keyword ({e})")
         else:
             cap = f"{new_name}\n\n🌟 Size: {filesize}"
@@ -1375,8 +1524,10 @@ async def linktofile(bot, msg: Message):
             try:
                 await bot.send_document(msg.chat.id, document=downloaded, thumb=og_thumbnail, caption=cap, progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
             except ValueError as e:
+                await db.update_task(user_id, "Leech", "Failed")
                 return await sts.edit(f"Upload failed: {e}")
             except TimeoutError as e:
+                await db.update_task(user_id, "Leech", "Failed")
                 return await sts.edit(f"Upload timed out: {e}")
 
         try:
@@ -1387,8 +1538,9 @@ async def linktofile(bot, msg: Message):
             print(f"Error deleting files: {e}")
 
         await sts.delete()
+        await db.update_task(user_id, "Leech", "Completed")
 
-async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time):
+async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time, task_id):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(link) as resp:
@@ -1396,15 +1548,15 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
                     with open(new_name, 'wb') as f:
                         f.write(await resp.read())
                 else:
-                    await sts.edit(f"Failed to download file from link. Status code: {resp.status}")
-                    return
+                    await db.update_task(msg.from_user.id, "Leech", "Failed")
+                    return await sts.edit(f"Failed to download file from link. Status code: {resp.status}")
     except Exception as e:
-        await sts.edit(f"Error during download: {e}")
-        return
+        await db.update_task(msg.from_user.id, "Leech", "Failed")
+        return await sts.edit(f"Error during download: {e}")
 
     if not os.path.exists(new_name):
-        await sts.edit("File not found after download. Please check the link and try again.")
-        return
+        await db.update_task(msg.from_user.id, "Leech", "Failed")
+        return await sts.edit("File not found after download. Please check the link and try again.")
 
     filesize = humanbytes(os.path.getsize(new_name))
 
@@ -1433,8 +1585,10 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
         try:
             await bot.send_document(msg.chat.id, document=new_name, thumb=og_thumbnail, caption=f"{new_name}\n\n🌟 Size: {filesize}", progress=progress_message, progress_args=("💠 Upload Started... ⚡", sts, c_time))
         except ValueError as e:
+            await db.update_task(msg.from_user.id, "Leech", "Failed")
             return await sts.edit(f"Upload failed: {e}")
         except TimeoutError as e:
+            await db.update_task(msg.from_user.id, "Leech", "Failed")
             return await sts.edit(f"Upload timed out: {e}")
 
     try:
@@ -1445,121 +1599,12 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
         print(f"Error deleting files: {e}")
 
     await sts.delete()
+    await db.update_task(msg.from_user.id, "Leech", "Completed")
 
 
 
 #Removetags command 
-async def safe_edit_message(message, new_text):
-    try:
-        if message.text != new_text:
-            await message.edit(new_text)
-    except Exception as e:
-        print(f"Failed to edit message: {e}")
-        
-# Command to remove tags from media files
-@Client.on_message(filters.command("removetags") & filters.chat(GROUP))
-async def remove_tags(bot, msg):
-    global REMOVETAGS_ENABLED
-    if not REMOVETAGS_ENABLED:
-        return await msg.reply_text("The removetags feature is currently disabled.")
 
-    reply = msg.reply_to_message
-    if not reply:
-        return await msg.reply_text("Please reply to a media file with the removetags command.")
-
-    media = reply.document or reply.audio or reply.video
-    if not media:
-        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the removetags command.")
-
-    command_text = " ".join(msg.command[1:]).strip()
-    new_filename = None
-
-    # Extract new filename from command
-    if "-n" in command_text:
-        try:
-            new_filename = command_text.split('-n')[1].strip()
-        except IndexError:
-            return await msg.reply_text("Please provide a valid filename with the -n option (e.g., `-n new_filename.mkv`).")
-
-        # Check if new filename has a valid video file extension (.mkv, .mp4, .avi)
-        valid_extensions = ('.mkv', '.mp4', '.avi')
-        if not any(new_filename.lower().endswith(ext) for ext in valid_extensions):
-            return await msg.reply_text("The new filename must include a valid extension (e.g., `.mkv`, `.mp4`, `.avi`).")
-
-    sts = await msg.reply_text("🚀 Downloading media... ⚡")
-    c_time = time.time()
-    try:
-        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
-    except Exception as e:
-        await safe_edit_message(sts, f"Error downloading media: {e}")
-        return
-
-    cleaned_file = new_filename if new_filename else "cleaned_" + os.path.basename(downloaded)
-
-    await safe_edit_message(sts, "💠 Removing all tags... ⚡")
-    try:
-        remove_all_tags(downloaded, cleaned_file)
-    except Exception as e:
-        await safe_edit_message(sts, f"Error removing all tags: {e}")
-        os.remove(downloaded)
-        return
-
-    # Retrieve thumbnail from database
-    file_thumb = None
-    thumbnail_id = await db.get_thumbnail(msg.from_user.id)
-    if thumbnail_id:
-        try:
-            file_thumb = await bot.download_media(thumbnail_id, file_name=f"thumbnail_{msg.from_user.id}.jpg")
-        except Exception as e:
-            print(f"Error downloading thumbnail: {e}")
-
-    await safe_edit_message(sts, "🔼 Uploading cleaned file... ⚡")
-    try:
-        # Upload to Google Drive if file size exceeds the limit
-        filesize = os.path.getsize(cleaned_file)
-        if filesize > FILE_SIZE_LIMIT:
-            file_link = await upload_to_google_drive(cleaned_file, os.path.basename(cleaned_file), sts)
-            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
-            await msg.reply_text(
-                f"File successfully Removed tags and uploaded to Google Drive!\n\n"
-                f"Google Drive Link: [View File]({file_link})\n\n"
-                f"Uploaded File: {os.path.basename(cleaned_file)}\n"
-                f"Request User: {msg.from_user.mention}\n\n"
-                f"Size: {humanbytes(filesize)}",
-                reply_markup=InlineKeyboardMarkup(button)
-            )
-        else:
-            # Send cleaned file to user's PM
-            await bot.send_document(
-                msg.from_user.id,
-                cleaned_file,
-                thumb=file_thumb,
-                caption="Here is your file with all tags removed.",
-                progress=progress_message,
-                progress_args=("🔼 Upload Started... ⚡️", sts, c_time)
-            )
-
-            # Notify in the group about the upload
-            await msg.reply_text(
-                f"┏📥 **File Name:** {os.path.basename(cleaned_file)}\n"
-                f"┠💾 **Size:** {humanbytes(filesize)}\n"
-                f"┠♻️ **Mode:** Remove Tags\n"
-                f"┗🚹 **Request User:** {msg.from_user.mention}\n\n"
-                f"❄ **File has been sent to your PM in the bot!**"
-            )
-
-        await sts.delete()
-    except Exception as e:
-        await safe_edit_message(sts, f"Error uploading cleaned file: {e}")
-    finally:
-        os.remove(downloaded)
-        os.remove(cleaned_file)
-        if file_thumb and os.path.exists(file_thumb):
-            os.remove(file_thumb)
-
-    # Save new filename to database
-    if new_filename:
-        await db.save_new_filename(msg.from_user.id, new_filename)
 
 #Screenshots Command
 @Client.on_message(filters.command("screenshots") & filters.chat(GROUP))
