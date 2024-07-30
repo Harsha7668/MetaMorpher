@@ -3402,6 +3402,8 @@ async def handle_link_download(bot, msg: Message, link: str, new_name: str, medi
 
     await sts.delete()"""
 
+#below code safe edit changeleech
+"""
 from pyrogram.errors import RPCError
 
 async def safe_edit_message(sts, text):
@@ -3415,7 +3417,7 @@ async def safe_edit_message(sts, text):
             # Handle other potential RPC errors
             print(f"Failed to edit message: {e}")
 
-
+"""
 
 @Client.on_message(filters.command("changeleech") & filters.chat(GROUP))
 async def changeleech(bot, msg: Message):
