@@ -577,7 +577,7 @@ async def mirror_to_google_drive(bot, msg: Message):
             message=reply, 
             file_name=new_name, 
             progress=progress_message, 
-            progress_args=("Downloading", sts, time.time(), original_file_name, username, stop_event)
+            progress_args=("Downloading", sts, time.time(), original_file_name, username, stop_event, "Mirror")
         )
         
         if stop_event.is_set():
@@ -603,7 +603,7 @@ async def mirror_to_google_drive(bot, msg: Message):
             status, response = request.next_chunk()
             if status:
                 current_progress = status.progress() * 100
-                await progress_message(current_progress, 100, "Uploading to Google Drive", sts, start_time, original_file_name, username, stop_event)
+                await progress_message(current_progress, 100, "Uploading to Google Drive", sts, start_time, original_file_name, username, stop_event, "Mirror")
                 if stop_event.is_set():
                     del ongoing_processes[user_id]
                     await sts.edit("Process stopped.")
@@ -641,11 +641,28 @@ async def mirror_to_google_drive(bot, msg: Message):
 @Client.on_message(filters.command("stop") & filters.chat(GROUP))
 async def stop_process(bot, msg: Message):
     user_id = msg.from_user.id
-    if user_id in ongoing_processes:
-        ongoing_processes[user_id].set()
-        await msg.reply_text("Process stopped.")
+    username = msg.from_user.username or msg.from_user.first_name  # Get the username or first name
+    
+    if user_id in AUTH_USERS:
+        if user_id in ongoing_processes:
+            ongoing_processes[user_id].set()
+            await msg.reply_text("Process stopped.")
+        else:
+            await msg.reply_text("No ongoing process to stop.")
     else:
-        await msg.reply_text("No ongoing process to stop.")
+        # Notify the user that they are not authorized
+        await msg.reply_text("You are not authorized to stop the process.")
+        # Notify authorized users about the unauthorized stop attempt
+        for auth_user_id in AUTH_USERS:
+            try:
+                await bot.send_message(
+                    chat_id=auth_user_id,
+                    text=f"Unauthorized stop attempt by {username} ({user_id})."
+                )
+            except Exception as e:
+                print(f"Error notifying authorized user: {e}")
+
+
 
 
 """
