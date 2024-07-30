@@ -533,7 +533,9 @@ async def save_photo(bot: Client, msg: Message):
     photo = reply.photo
     result = await db.save_photo(user_id, photo.file_id)
     await msg.reply_text(result)
+    
 
+AUTH_USERS = 6469754522
 
 # Dictionary to track ongoing processes and their stop events
 ongoing_processes = {}
