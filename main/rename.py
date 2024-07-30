@@ -1035,6 +1035,7 @@ async def attach_photo(bot, msg: Message):
 
   
 # Command handler for changing audio index
+
 @Client.on_message(filters.command("changeindexaudio") & filters.chat(GROUP))
 async def change_index_audio(bot, msg):
     global CHANGE_INDEX_ENABLED
