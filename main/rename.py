@@ -79,6 +79,7 @@ async def display_bot_settings_inline(msg):
     
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
+            
             [InlineKeyboardButton("💠", callback_data="sunrises24_bot_updates")],            
             [InlineKeyboardButton(f"{rename_status} Change Rename 📝", callback_data="toggle_rename")],
             [InlineKeyboardButton(f"{removealltags_status} Remove All Tags 📛", callback_data="toggle_removealltags")],
@@ -1034,7 +1035,7 @@ async def attach_photo(bot, msg: Message):
 
 
   
-# Command handler for changing audio index
+#Command handler for changing audio index
 
 @Client.on_message(filters.command("changeindexaudio") & filters.chat(GROUP))
 async def change_index_audio(bot, msg):
