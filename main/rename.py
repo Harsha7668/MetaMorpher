@@ -1172,7 +1172,128 @@ async def attach_photo(bot, msg: Message):
         if os.path.exists(attachment_path):
             os.remove(attachment_path)
         
+@Client.on_message(filters.command("changeindexaudio") & filters.chat(GROUP))
+async def change_index_audio(bot, msg):
+    global CHANGE_INDEX_ENABLED
 
+    if not CHANGE_INDEX_ENABLED:
+        return await msg.reply_text("The changeindexaudio feature is currently disabled.")
+
+    reply = msg.reply_to_message
+    if not reply:
+        return await msg.reply_text("Please reply to a media file with the index command\nFormat: `/changeindexaudio a-3 -n filename.mkv` (Audio)")
+
+    if len(msg.command) < 3:
+        return await msg.reply_text("Please provide the index command with a filename\nFormat: `/changeindexaudio a-3 -n filename.mkv` (Audio)")
+
+    index_cmd = None
+    new_name = None
+
+    # Extract index command and output filename from the command
+    for i in range(1, len(msg.command)):
+        if msg.command[i] == "-n":
+            new_name = " ".join(msg.command[i + 1:])  # Join all the parts after the flag
+            break
+
+    index_cmd = " ".join(msg.command[1:i])  # Get the index command before the flag
+
+    if not new_name:
+        return await msg.reply_text("Please provide a filename using the `-n` flag.")
+
+    if not index_cmd or not index_cmd.startswith("a-"):
+        return await msg.reply_text("Invalid format. Use `/changeindexaudio a-3 -n filename.mkv` for audio.")
+
+    media = reply.document or reply.audio or reply.video
+    if not media:
+        return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the index command.")
+
+    sts = await msg.reply_text("🚀 Downloading media... ⚡")
+    c_time = time.time()
+    try:
+        # Download the media file
+        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time, new_name, msg.from_user.mention, "change index audio"))
+    except Exception as e:
+        await sts.edit(f"Error downloading media: {e}")
+        return
+
+    # Output file path (temporary file)
+    output_file = os.path.splitext(downloaded)[0] + "_indexed" + os.path.splitext(downloaded)[1]
+
+    index_params = index_cmd.split('-')
+    stream_type = index_params[0]
+    indexes = [int(i) - 1 for i in index_params[1:]]
+
+    # Construct the FFmpeg command to modify indexes
+    ffmpeg_cmd = ['ffmpeg', '-i', downloaded, '-map', '0:v']  # Always map video stream
+
+    for idx in indexes:
+        ffmpeg_cmd.extend(['-map', f'0:{stream_type}:{idx}'])
+
+    # Copy all subtitle streams if they exist
+    ffmpeg_cmd.extend(['-map', '0:s?'])
+
+    ffmpeg_cmd.extend(['-c', 'copy', output_file, '-y'])
+
+    await sts.edit("💠 Changing audio indexing... ⚡")
+    process = await asyncio.create_subprocess_exec(*ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        await sts.edit(f"❗ FFmpeg error: {stderr.decode('utf-8')}")
+        os.remove(downloaded)
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        return
+
+    # Thumbnail handling
+    thumbnail_file_id = await db.get_thumbnail(msg.from_user.id)
+
+    if thumbnail_file_id:
+        try:
+            file_thumb = await bot.download_media(thumbnail_file_id)
+        except Exception as e:
+            file_thumb = None
+    else:
+        file_thumb = None
+
+    filesize = os.path.getsize(output_file)
+    filesize_human = humanbytes(filesize)
+    cap = f"{new_name}\n\n🌟 Size: {filesize_human}"
+
+    await sts.edit("💠 Uploading... ⚡")
+    c_time = time.time()
+
+    if filesize > FILE_SIZE_LIMIT:
+        file_link = await upload_to_google_drive(output_file, new_name, sts)
+        button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+        await msg.reply_text(
+            f"**File successfully changed audio index and uploaded to Google Drive!**\n\n"
+            f"**Google Drive Link**: [View File]({file_link})\n\n"
+            f"**Uploaded File**: {new_name}\n"
+            f"**Request User:** {msg.from_user.mention}\n\n"
+            f"**Size**: {filesize_human}",
+            reply_markup=InlineKeyboardMarkup(button)
+        )
+    else:
+        try:
+            await bot.send_document(
+                msg.chat.id,
+                document=output_file,
+                file_name=new_name,  # Apply the new file name here
+                thumb=file_thumb,
+                caption=cap,
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡️", sts, c_time, new_name, msg.from_user.mention, "change index audio")
+            )
+        except Exception as e:
+            return await sts.edit(f"Error: {e}")
+
+    # Clean up downloaded and temporary files
+    os.remove(downloaded)
+    os.remove(output_file)
+    if file_thumb and os.path.exists(file_thumb):
+        os.remove(file_thumb)
+    await sts.delete()
         
         
         
