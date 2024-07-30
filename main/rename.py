@@ -1174,7 +1174,6 @@ async def change_index_audio(bot, msg):
 
 
 
-
 # Command handler for changing subtitle index
 @Client.on_message(filters.command("changeindexsub") & filters.chat(GROUP))
 async def change_index_subtitle(bot, msg):
