@@ -5,8 +5,7 @@ import os
 
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
-
-async def progress_message(current, total, ud_type, message, start, file_name, username, stop_event, process_type):
+async def progress_message(current, total, process_type, message, start, file_name, username, task_type):
     now = time.time()
     diff = now - start
     if round(diff % 5.00) == 0 or current == total:
@@ -23,30 +22,15 @@ async def progress_message(current, total, ud_type, message, start, file_name, u
             ''.join(["■" for i in range(math.floor(percentage / 5))]),
             ''.join(["□" for i in range(20 - math.floor(percentage / 5))])
         )
-
-        progress_text = (
-            f"{process_type} Process:\n{file_name}\n"
-            f"Size: {humanbytes(total)}\n"
-            f"Elapsed: {elapsed_time}\n"
-            f"By: {username}\n"
-            f"/stop\n\n"
-            f"Progress: {round(percentage, 2)}%\n"
-            f"{humanbytes(current)} of {humanbytes(total)}\n"
-            f"Speed: {speed}\n"
-            f"ETA: {estimated_total_time if estimated_total_time else '0 s'}\n\n"
-            f"{progress}"
-        )
+        tmp = f"{progress}\nProgress: {round(percentage, 2)}%\n{humanbytes(current)} of {humanbytes(total)}\nSpeed: {speed}\nETA: {estimated_total_time if estimated_total_time != '' else '0 s'}"
 
         try:
             await message.edit(
-                text=progress_text,
+                text=f"{process_type} for {task_type} by {username} ({file_name})\n\n{tmp}",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌟 Jᴏɪɴ Us 🌟", url="https://t.me/Sunrises24botupdates")]])
             )
         except Exception as e:
             print(f"Error editing message: {e}")
-
-        if stop_event.is_set():
-            raise Exception("Process stopped by user")
 
 # Helper functions
 def humanbytes(size):
