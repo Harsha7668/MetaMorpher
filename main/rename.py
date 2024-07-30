@@ -535,6 +535,120 @@ async def save_photo(bot: Client, msg: Message):
     await msg.reply_text(result)
 
 
+# Dictionary to track ongoing processes
+ongoing_processes = {}
+
+@Client.on_message(filters.command("mirror") & filters.chat(GROUP))
+async def mirror_to_google_drive(bot, msg: Message):
+    global MIRROR_ENABLED
+    
+    if not MIRROR_ENABLED:
+        return await msg.reply_text("The mirror feature is currently disabled.")
+
+    user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name  # Get the username or first name
+    
+    # Retrieve the user's Google Drive folder ID
+    gdrive_folder_id = await db.get_gdrive_folder_id(user_id)
+    
+    if not gdrive_folder_id:
+        return await msg.reply_text("Google Drive folder ID is not set. Please use the /gdriveid command to set it.")
+
+    reply = msg.reply_to_message
+    if len(msg.command) < 2 or not reply:
+        return await msg.reply_text("Please reply to a file with the new filename and extension.")
+
+    media = reply.document or reply.audio or reply.video
+    if not media:
+        return await msg.reply_text("Please reply to a file with the new filename and extension.")
+
+    new_name = msg.text.split(" ", 1)[1]
+    original_file_name = media.file_name
+
+    try:
+        # Show progress message for downloading
+        sts = await msg.reply_text("🚀 Downloading...")
+        
+        # Track the ongoing process
+        ongoing_processes[user_id] = {"status": "downloading", "message": sts}
+        
+        # Download the file
+        downloaded_file = await bot.download_media(
+            message=reply, 
+            file_name=new_name, 
+            progress=progress_message, 
+            progress_args=("Downloading", sts, time.time(), original_file_name, username, user_id)
+        )
+        
+        if ongoing_processes[user_id]["status"] == "stopped":
+            del ongoing_processes[user_id]
+            await sts.edit("Process stopped.")
+            return
+        
+        filesize = os.path.getsize(downloaded_file)
+        
+        # Once downloaded, update the message to indicate uploading
+        await sts.edit("💠 Uploading...")
+        ongoing_processes[user_id]["status"] = "uploading"
+        
+        start_time = time.time()
+
+        # Upload file to Google Drive
+        file_metadata = {'name': new_name, 'parents': [gdrive_folder_id]}
+        media = MediaFileUpload(downloaded_file, resumable=True)
+
+        # Upload with progress monitoring
+        request = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink')
+        response = None
+        while response is None:
+            status, response = request.next_chunk()
+            if status:
+                current_progress = status.progress() * 100
+                await progress_message(current_progress, 100, "Uploading to Google Drive", sts, start_time, original_file_name, username, user_id)
+                if ongoing_processes[user_id]["status"] == "stopped":
+                    del ongoing_processes[user_id]
+                    await sts.edit("Process stopped.")
+                    return
+
+        file_id = response.get('id')
+        file_link = response.get('webViewLink')
+
+        # Prepare caption for the uploaded file
+        if CAPTION:
+            caption_text = CAPTION.format(file_name=new_name, file_size=humanbytes(filesize))
+        else:
+            caption_text = f"Uploaded File: {new_name}\nSize: {humanbytes(filesize)}"
+
+        # Send the Google Drive link to the user
+        button = [
+            [InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]
+        ]
+        await msg.reply_text(
+            f"File successfully mirrored and uploaded to Google Drive!\n\n"
+            f"Google Drive Link: [View File]({file_link})\n\n"
+            f"Uploaded File: {new_name}\n"
+            f"Size: {humanbytes(filesize)}",
+            reply_markup=InlineKeyboardMarkup(button)
+        )
+        os.remove(downloaded_file)
+        await sts.delete()
+        del ongoing_processes[user_id]
+
+    except Exception as e:
+        await sts.edit(f"Error: {e}")
+        if user_id in ongoing_processes:
+            del ongoing_processes[user_id]
+
+@Client.on_message(filters.command("stop"))
+async def stop_process(bot, msg: Message):
+    user_id = msg.from_user.id
+    if user_id in ongoing_processes:
+        ongoing_processes[user_id]["status"] = "stopped"
+        await msg.reply_text("Process stopped.")
+    else:
+        await msg.reply_text("No ongoing process to stop.")
+        
+"""
 # Command handler for /mirror
 @Client.on_message(filters.command("mirror") & filters.chat(GROUP))
 async def mirror_to_google_drive(bot, msg: Message):
@@ -612,7 +726,7 @@ async def mirror_to_google_drive(bot, msg: Message):
 
     except Exception as e:
         await sts.edit(f"Error: {e}")
-        
+     """   
 
 #Rename Command
 @Client.on_message(filters.command("rename") & filters.chat(GROUP))
