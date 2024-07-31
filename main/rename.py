@@ -911,6 +911,7 @@ async def filemultitask(bot, msg: Message):
         return await msg.reply_text("One or more required features are currently disabled.")
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
 
     # Fetch metadata titles from the database
     metadata_titles = await db.get_metadata_titles(user_id)
@@ -941,8 +942,8 @@ async def filemultitask(bot, msg: Message):
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the change command.")
 
     # Add task to the database
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Change Index and Metadata", "Queued")
-    await bot.send_message(GROUP, f"Change Index and Metadata Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+    task_id = await db.add_task(user_id, username, "Change Index and Metadata", "Queued")
+    await bot.send_message(GROUP, f"Change Index and Metadata Task is added by {username} ({user_id})")
 
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
@@ -1060,6 +1061,7 @@ async def attach_photo(bot, msg: Message):
         return await msg.reply_text("Photo attachment feature is currently disabled.")
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
 
     # Add a new task to the user tasks schema
     task_id = await db.add_task(user_id, username, "Attach Photo", "Queued")
@@ -1204,6 +1206,7 @@ async def change_index_audio(bot, msg):
         return await msg.reply_text("The changeindexaudio feature is currently disabled.")
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
 
     # Add a new task to the user tasks schema
     task_id = await db.add_task(user_id,  username, "Change Index Audio", "Queued")
@@ -1345,6 +1348,7 @@ async def change_index_subtitle(bot, msg):
         return await msg.reply_text("The changeindexsub feature is currently disabled.")
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
 
     # Add a new task to the user tasks schema
     task_id = await db.add_task(user_id,  username, "Change Index Subtitle", "Queued")
@@ -1481,6 +1485,8 @@ async def start_merge_command(bot, msg: Message):
         return await msg.reply_text("The merge feature is currently disabled.")
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+
     merge_state[user_id] = {"files": [], "new_name": None, "is_merging": False}
 
     # Add a new task to the user tasks schema
@@ -1520,7 +1526,7 @@ async def handle_media_files(bot, msg: Message):
             await msg.reply_text("You have already sent 10 files. Use `/videomerge filename` to start merging.")
 
 async def merge_and_upload(bot, msg: Message, task_id: int):
-    user_id = msg.from_user.id
+    user_id = msg.from_user.id    
     if user_id not in merge_state:
         await db.update_task_status(task_id, "failed")
         return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
@@ -1632,6 +1638,8 @@ async def linktofile(bot, msg: Message):
     c_time = time.time()
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+
     task_id = await db.add_task(user_id, username, "Leech Command", "Queued")
     await bot.send_message(GROUP, f"Leech Task is added by {username} ({user_id})")
 
@@ -1807,6 +1815,8 @@ async def remove_tags(bot, msg):
     c_time = time.time()
     
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+
     task_id = await db.add_task(user_id, username, "Remove Tags", "Queued")
     await bot.send_message(GROUP, f"Remove Tags Task is added by {username} ({user_id})")
     
@@ -2289,6 +2299,7 @@ async def extract_audios(bot, msg):
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the extractaudios command.")
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
     
     # Add task to the database
     task_id = await db.add_task(user_id, username, "Extracting", "Queued")
@@ -2361,7 +2372,8 @@ async def extract_subtitles(bot, msg):
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the extractsubtitles command.")
 
     user_id = msg.from_user.id
-    
+    username = msg.from_user.username or msg.from_user.first_name
+   
     # Add task to the database
     task_id = await db.add_task(user_id, username, "Extracting", "Queued")
     await bot.send_message(GROUP, "Extracting subtitles task added by {username} ({user_id})")    
@@ -2433,6 +2445,7 @@ async def extract_video(bot, msg: Message):
         return await msg.reply_text("Please reply to a valid video or document file with the extractvideo command.")
 
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
     
     # Add task to the database
     task_id = await db.add_task(user_id, username, "Extracting", "Queued")
@@ -2631,13 +2644,7 @@ async def ytdlleech_handler(client: Client, msg: Message):
         'noplaylist': True,
         'merge_output_format': 'mkv'
     }
-   
-    user_id = msg.from_user.id
-    
-    # Add task to the database
-    task_id = await db.add_task(user_id, username, "Downloading YouTube video", "Queued")
-    await bot.send_message(GROUP, f"Downloading YouTube video task added by {username} ({user_id})")    
-   
+
     try:
         with YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=False)
@@ -2657,7 +2664,7 @@ async def ytdlleech_handler(client: Client, msg: Message):
                 'title': info_dict['title'],
                 'thumbnail': info_dict.get('thumbnail')  # No default thumbnail path
             }
-            await db.save_file_data(user_id, file_data)
+            await db.save_file_data(msg.from_user.id, file_data)
 
             user_quality_selection = {
                 'url': url,
@@ -2665,11 +2672,10 @@ async def ytdlleech_handler(client: Client, msg: Message):
                 'thumbnail': info_dict.get('thumbnail'),
                 'formats': formats
             }
-            await db.save_user_quality_selection(user_id, user_quality_selection)
+            await db.save_user_quality_selection(msg.from_user.id, user_quality_selection)
 
     except Exception as e:
         await msg.reply_text(f"Error: {e}")
-        await db.update_task(task_id, status="Failed", error_message=str(e))
 
 @Client.on_callback_query(filters.regex(r"^\d+$"))
 async def callback_query_handler(client: Client, query):
