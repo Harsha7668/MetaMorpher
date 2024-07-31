@@ -1609,7 +1609,158 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
 
         await sts.delete()
 
-        
+  @Client.on_message(filters.command("leech") & filters.chat(GROUP))
+async def linktofile(bot, msg: Message):
+    if len(msg.command) < 2 or not msg.reply_to_message:
+        return await msg.reply_text("Please reply to a file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
+
+    reply = msg.reply_to_message
+    new_name = msg.text.split(" ", 1)[1]
+    
+    if not new_name.endswith((".mkv", ".mp4", ".zip")):
+        return await msg.reply_text("Please specify a filename ending with .mkv, .mp4, or .zip.")
+
+    media = reply.document or reply.audio or reply.video or reply.text
+
+    sts = await msg.reply_text("🚀 Downloading... ⚡")
+    c_time = time.time()
+
+    user_id = msg.from_user.id
+    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Leech Command", "Queued")
+    await bot.send_message(GROUP, f"Leech Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+
+    if reply.text and ("seedr" in reply.text or "workers" in reply.text):
+        await handle_link_download(bot, msg, reply.text, new_name, media, sts, c_time, task_id)
+    else:
+        if not media:
+            return await msg.reply_text("Please reply to a valid file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
+
+        try:
+            downloaded = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+        except RPCError as e:
+            await db.update_task_status(task_id, "Failed")
+            return await sts.edit(f"Download failed: {e}")
+
+        filesize = humanbytes(os.path.getsize(downloaded))
+
+        if CAPTION:
+            try:
+                cap = CAPTION.format(file_name=new_name, file_size=filesize)
+            except KeyError as e:
+                await db.update_task_status(task_id, "Failed")
+                return await sts.edit(text=f"Caption error: unexpected keyword ({e})")
+        else:
+            cap = f"{new_name}\n\n🌟 Size: {filesize}"
+
+        # Thumbnail handling
+        thumbnail_file_id = await db.get_thumbnail(msg.from_user.id)
+        og_thumbnail = None
+        if thumbnail_file_id:
+            try:
+                og_thumbnail = await bot.download_media(thumbnail_file_id)
+            except Exception:
+                pass
+        else:
+            if hasattr(media, 'thumbs') and media.thumbs:
+                try:
+                    og_thumbnail = await bot.download_media(media.thumbs[0].file_id)
+                except Exception:
+                    pass
+
+        await sts.edit("💠 Uploading... ⚡")
+        c_time = time.time()
+
+        try:
+            if os.path.getsize(downloaded) > FILE_SIZE_LIMIT:
+                file_link = await upload_to_google_drive(downloaded, new_name, sts)
+                await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+            else:
+                await bot.send_document(
+                    msg.chat.id,
+                    document=downloaded,
+                    thumb=og_thumbnail,
+                    caption=cap,
+                    progress=progress_message,
+                    progress_args=("💠 Upload Started... ⚡", sts, c_time)
+                )
+            await db.update_task_status(task_id, "Completed")
+        except Exception as e:
+            await db.update_task_status(task_id, "Failed")
+            return await sts.edit(f"Upload failed: {e}")
+
+        try:
+            if og_thumbnail:
+                os.remove(og_thumbnail)
+            os.remove(downloaded)
+        except Exception as e:
+            print(f"Error deleting files: {e}")
+
+        await sts.delete()
+
+async def handle_link_download(bot, msg: Message, link: str, new_name: str, media, sts, c_time, task_id: int):
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(link) as resp:
+                if resp.status == 200:
+                    with open(new_name, 'wb') as f:
+                        f.write(await resp.read())
+                else:
+                    await db.update_task_status(task_id, "Failed")
+                    return await sts.edit(f"Failed to download file from link. Status code: {resp.status}")
+    except Exception as e:
+        await db.update_task_status(task_id, "Failed")
+        return await sts.edit(f"Error during download: {e}")
+
+    if not os.path.exists(new_name):
+        await db.update_task_status(task_id, "Failed")
+        return await sts.edit("File not found after download. Please check the link and try again.")
+
+    filesize = humanbytes(os.path.getsize(new_name))
+
+    # Thumbnail handling
+    thumbnail_file_id = await db.get_thumbnail(msg.from_user.id)
+    og_thumbnail = None
+    if thumbnail_file_id:
+        try:
+            og_thumbnail = await bot.download_media(thumbnail_file_id)
+        except Exception:
+            pass
+    else:
+        if hasattr(media, 'thumbs') and media.thumbs:
+            try:
+                og_thumbnail = await bot.download_media(media.thumbs[0].file_id)
+            except Exception:
+                pass
+
+    await sts.edit("💠 Uploading... ⚡")
+    c_time = time.time()
+
+    try:
+        if os.path.getsize(new_name) > FILE_SIZE_LIMIT:
+            file_link = await upload_to_google_drive(new_name, new_name, sts)
+            await msg.reply_text(f"File uploaded to Google Drive!\n\n📁 **File Name:** {new_name}\n💾 **Size:** {filesize}\n🔗 **Link:** {file_link}")
+        else:
+            await bot.send_document(
+                msg.chat.id,
+                document=new_name,
+                thumb=og_thumbnail,
+                caption=f"{new_name}\n\n🌟 Size: {filesize}",
+                progress=progress_message,
+                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+            )
+        await db.update_task_status(task_id, "Completed")
+    except Exception as e:
+        await db.update_task_status(task_id, "Failed")
+        return await sts.edit(f"Upload failed: {e}")
+
+    try:
+        if og_thumbnail:
+            os.remove(og_thumbnail)
+        os.remove(new_name)
+    except Exception as e:
+        print(f"Error deleting files: {e}")
+
+    await sts.delete()      
         
       
 #Screenshots Command
