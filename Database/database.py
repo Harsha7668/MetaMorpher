@@ -20,6 +20,16 @@ class Database:
         self.photo_col = self.db['photos']
         self.tasks_col = self.db['tasks']  # New collection for tasks
 
+
+    async def list_tasks(self, page, tasks_per_page, filter_criteria=None):
+        query = {} if filter_criteria is None else filter_criteria
+        tasks = await self.tasks_col.find(query).skip((page - 1) * tasks_per_page).limit(tasks_per_page).to_list(length=tasks_per_page)
+        return tasks
+
+    async def delete_completed_tasks(self):
+        filter_criteria = {'status': 'completed'}  # Adjust to match your actual completed status value
+        result = await self.tasks_col.delete_many(filter_criteria)
+        return result.deleted_count    
    
 
     async def add_task(self, user_id, username, task_type, status):
@@ -42,14 +52,7 @@ class Database:
 
     async def get_task(self, task_id):
         return await self.tasks_col.find_one({"_id": ObjectId(task_id)})
-
-    async def list_tasks(self, page=1, tasks_per_page=2):
-        skip = (page - 1) * tasks_per_page
-        tasks_cursor = self.tasks_col.find().sort("timestamp", -1).skip(skip).limit(tasks_per_page)
-        tasks = await tasks_cursor.to_list(length=tasks_per_page)
-        return tasks
     
-
     async def save_photo(self, user_id, file_id):
         try:
             await self.photo_col.update_one(
