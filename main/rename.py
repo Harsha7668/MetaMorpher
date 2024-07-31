@@ -2143,8 +2143,7 @@ async def unzip(bot, msg):
 @Client.on_message(filters.command("gofile") & filters.chat(GROUP))
 async def gofile_upload(bot, msg: Message):
     user_id = msg.from_user.id
-    username = msg.from_user.username or msg.from_user.first_name
-
+    
     # Retrieve the user's Gofile API key from the database
     gofile_api_key = await db.get_gofile_api_key(user_id)
 
@@ -2168,6 +2167,7 @@ async def gofile_upload(bot, msg: Message):
     file_name = new_name or media.file_name
 
     # Add task to the database
+    username = msg.from_user.username or msg.from_user.first_name
     task_id = await db.add_task(user_id, username, "Upload to Gofile", "Queued")
     await bot.send_message(GROUP, f"Upload to Gofile task added by {username} ({user_id})")
 
@@ -2317,7 +2317,7 @@ async def extract_audios(bot, msg):
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🎵 Extracting audio streams... ⚡")
@@ -2328,7 +2328,7 @@ async def extract_audios(bot, msg):
     except Exception as e:
         await safe_edit_message(sts, f"Error extracting audio streams: {e}")
         os.remove(downloaded)
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🔼 Uploading extracted audio files... ⚡")
@@ -2348,11 +2348,11 @@ async def extract_audios(bot, msg):
         await msg.reply_text("Audio streams extracted and sent to your PM in the bot!")
 
         # Update task to completed
-        await db.update_task(task_id, status="Completed")
+        await db.update_task_status(task_id, status="Completed")
         await sts.delete()
     except Exception as e:
         await safe_edit_message(sts, f"Error uploading extracted audio files: {e}")
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
     finally:
         os.remove(downloaded)
         for file, _ in extracted_files:
@@ -2390,7 +2390,7 @@ async def extract_subtitles(bot, msg):
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🎥 Extracting subtitle streams... ⚡")
@@ -2401,7 +2401,7 @@ async def extract_subtitles(bot, msg):
     except Exception as e:
         await safe_edit_message(sts, f"Error extracting subtitle streams: {e}")
         os.remove(downloaded)
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🔼 Uploading extracted subtitle files... ⚡")
@@ -2422,11 +2422,11 @@ async def extract_subtitles(bot, msg):
         )
 
         # Update task to completed
-        await db.update_task(task_id, status="Completed")
+        await db.update_task_status(task_id, status="Completed")
         await sts.delete()
     except Exception as e:
         await safe_edit_message(sts, f"Error uploading extracted subtitle files: {e}")
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
     finally:
         os.remove(downloaded)
         for file, _ in extracted_files:
@@ -2463,7 +2463,7 @@ async def extract_video(bot, msg: Message):
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🎥 Extracting video stream... ⚡")
@@ -2474,7 +2474,7 @@ async def extract_video(bot, msg: Message):
     except Exception as e:
         await safe_edit_message(sts, f"Error extracting video stream: {e}")
         os.remove(downloaded)
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🔼 Uploading extracted video... ⚡")
@@ -2494,11 +2494,11 @@ async def extract_video(bot, msg: Message):
         )
 
         # Update task to completed
-        await db.update_task(task_id, status="Completed")
+        await db.update_task_status(task_id, status="Completed")
         await sts.delete()
     except Exception as e:
         await safe_edit_message(sts, f"Error uploading extracted video: {e}")
-        await db.update_task(task_id, status="Failed", error_message=str(e))
+        await db.update_task_status(task_id, status="Failed", error_message=str(e))
     finally:
         os.remove(downloaded)
         if os.path.exists(output_file):
