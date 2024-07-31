@@ -1874,7 +1874,7 @@ async def remove_tags(bot, msg):
             os.remove(file_thumb)
 
     if new_name:
-        await db.save_new_filename(msg.from_user.id, new_name)
+        await db.save_new_name(msg.from_user.id, new_name)
 
 
 #Screenshots Command
