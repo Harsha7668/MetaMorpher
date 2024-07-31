@@ -1498,6 +1498,8 @@ async def start_merge_command(bot, msg: Message):
 @Client.on_message(filters.command("videomerge") & filters.chat(GROUP))
 async def start_video_merge_command(bot, msg: Message):
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+
     if user_id not in merge_state or not merge_state[user_id]["files"]:
         return await msg.reply_text("No files received for merging. Please send files using /merge command first.")
 
@@ -1514,6 +1516,8 @@ async def start_video_merge_command(bot, msg: Message):
 @Client.on_message(filters.document | filters.video & filters.chat(GROUP))
 async def handle_media_files(bot, msg: Message):
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+
     if user_id in merge_state:
         if merge_state[user_id].get("is_merging"):
             await msg.reply_text("Merging process has started. No more files can be added.")
@@ -1526,7 +1530,9 @@ async def handle_media_files(bot, msg: Message):
             await msg.reply_text("You have already sent 10 files. Use `/videomerge filename` to start merging.")
 
 async def merge_and_upload(bot, msg: Message, task_id: int):
-    user_id = msg.from_user.id    
+    user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+    
     if user_id not in merge_state:
         await db.update_task_status(task_id, "failed")
         return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
