@@ -2118,7 +2118,109 @@ async def unzip(bot, msg):
     shutil.rmtree(extract_path)
 
 
+@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
+async def gofile_upload(bot, msg: Message):
+    user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
 
+    # Retrieve the user's Gofile API key from the database
+    gofile_api_key = await db.get_gofile_api_key(user_id)
+
+    if not gofile_api_key:
+        return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
+
+    reply = msg.reply_to_message
+    if not reply or not reply.document and not reply.video:
+        return await msg.reply_text("Please reply to a file or video to upload to Gofile.")
+
+    media = reply.document or reply.video
+    new_name = None
+
+    # Check if a new name is provided
+    args = msg.text.split(" ", 1)
+    if len(args) == 2:
+        new_name = args[1]
+        await db.save_new_name(user_id, new_name)  # Save new name to database
+
+    # Use new name if available, otherwise use the file name
+    file_name = new_name or media.file_name
+
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Upload to Gofile", "Queued")
+    await bot.send_message(GROUP, f"Upload to Gofile task added by {username} ({user_id})")
+
+    sts = await msg.reply_text("🚀 Uploading to Gofile...")
+    c_time = time.time()
+    
+    downloaded_file = None
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Get available servers
+            async with session.get("https://api.gofile.io/servers") as resp:
+                if resp.status != 200:
+                    await sts.edit(f"Failed to get servers. Status code: {resp.status}")
+                    await db.update_task_status(task_id, "Failed")
+                    return
+
+                data = await resp.json()
+                servers = data.get("data", {}).get("servers", [])
+                if not servers:
+                    await sts.edit("No servers available.")
+                    await db.update_task_status(task_id, "Failed")
+                    return
+                
+                server_name = servers[0].get("name")  # Use the server name
+                if not server_name:
+                    await sts.edit("Server name is missing.")
+                    await db.update_task_status(task_id, "Failed")
+                    return
+                
+                upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
+
+            # Download the media file
+            downloaded_file = await bot.download_media(
+                media,
+                file_name=file_name,  # Use new or original filename directly
+                progress=progress_message,
+                progress_args=("🚀 Download Started...", sts, c_time)
+            )
+
+            # Upload the file to Gofile
+            with open(downloaded_file, "rb") as file:
+                form_data = aiohttp.FormData()
+                form_data.add_field("file", file, filename=file_name)
+                headers = {"Authorization": f"Bearer {gofile_api_key}"} if gofile_api_key else {}
+
+                async with session.post(
+                    upload_url,
+                    headers=headers,
+                    data=form_data
+                ) as resp:
+                    if resp.status != 200:
+                        await sts.edit(f"Upload failed: Status code {resp.status}")
+                        await db.update_task_status(task_id, "Failed")
+                        return
+
+                    response = await resp.json()
+                    if response["status"] == "ok":
+                        download_url = response["data"]["downloadPage"]
+                        await sts.edit(f"Upload successful!\nDownload link: {download_url}")
+                        await db.update_task_status(task_id, "Completed")
+                    else:
+                        await sts.edit(f"Upload failed: {response['message']}")
+                        await db.update_task_status(task_id, "Failed")
+
+    except Exception as e:
+        await sts.edit(f"Error during upload: {e}")
+        await db.update_task_status(task_id, "Failed")
+
+    finally:
+        try:
+            if downloaded_file and os.path.exists(downloaded_file):
+                os.remove(downloaded_file)
+        except Exception as e:
+            print(f"Error deleting file: {e}")
 
 
 
@@ -2165,16 +2267,6 @@ async def clone_file(bot, msg: Message):
     except Exception as e:
         await sts.edit(f"Error: {e}")
 
-
-#safe edit message 
-async def safe_edit_message(message, new_text):
-    try:
-        if message.text != new_text:
-            await message.edit(new_text[:4096])  # Ensure text does not exceed 4096 characters
-    except Exception as e:
-        print(f"Failed to edit message: {e}")
-
-#extract audio command 
 @Client.on_message(filters.command("extractaudios") & filters.chat(GROUP))
 async def extract_audios(bot, msg):
     global EXTRACT_ENABLED
@@ -2190,12 +2282,17 @@ async def extract_audios(bot, msg):
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the extractaudios command.")
 
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Extracting", "Queued")
+    await bot.send_message(GROUP, f"Extracting audio streams task added by {username} ({user_id})")    
+
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
     try:
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🎵 Extracting audio streams... ⚡")
@@ -2206,11 +2303,13 @@ async def extract_audios(bot, msg):
     except Exception as e:
         await safe_edit_message(sts, f"Error extracting audio streams: {e}")
         os.remove(downloaded)
+        await db.update_task(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🔼 Uploading extracted audio files... ⚡")
     try:
         for file, metadata in extracted_files:
+            new_name = metadata.get('tags', {}).get('title', os.path.basename(file))  # Use title if available, otherwise use file name
             language = metadata.get('tags', {}).get('language', 'Unknown')
             caption = f"[{language}] Extracted audio file."
             await bot.send_document(
@@ -2221,20 +2320,23 @@ async def extract_audios(bot, msg):
                 progress_args=("🔼 Upload Started... ⚡️", sts, c_time)
             )
                 
-        await msg.reply_text(
-            "Audio streams extracted and sent to your PM in the bot!"
-        )
+        await msg.reply_text("Audio streams extracted and sent to your PM in the bot!")
 
+        # Update task to completed
+        await db.update_task(task_id, status="Completed")
         await sts.delete()
     except Exception as e:
         await safe_edit_message(sts, f"Error uploading extracted audio files: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
     finally:
         os.remove(downloaded)
         for file, _ in extracted_files:
             os.remove(file)
 
 
-#extract subtitles command 
+
+
+# Extract subtitles command
 @Client.on_message(filters.command("extractsubtitles") & filters.chat(GROUP))
 async def extract_subtitles(bot, msg):
     global EXTRACT_ENABLED
@@ -2250,12 +2352,17 @@ async def extract_subtitles(bot, msg):
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the extractsubtitles command.")
 
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Extracting", "Queued")
+    await bot.send_message(GROUP, Extracting subtitles task added by {username} ({user_id})")    
+    
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
     try:
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🎥 Extracting subtitle streams... ⚡")
@@ -2266,6 +2373,7 @@ async def extract_subtitles(bot, msg):
     except Exception as e:
         await safe_edit_message(sts, f"Error extracting subtitle streams: {e}")
         os.remove(downloaded)
+        await db.update_task(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🔼 Uploading extracted subtitle files... ⚡")
@@ -2276,7 +2384,7 @@ async def extract_subtitles(bot, msg):
             await bot.send_document(
                 msg.from_user.id,
                 file,
-                caption=caption,
+                caption=caption[:1024],  # Ensure caption does not exceed 1024 characters
                 progress=progress_message,
                 progress_args=("🔼 Upload Started... ⚡️", sts, c_time)
             )
@@ -2285,15 +2393,20 @@ async def extract_subtitles(bot, msg):
             "Subtitle streams extracted and sent to your PM in the bot!"
         )
 
+        # Update task to completed
+        await db.update_task(task_id, status="Completed")
         await sts.delete()
     except Exception as e:
         await safe_edit_message(sts, f"Error uploading extracted subtitle files: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
     finally:
         os.remove(downloaded)
         for file, _ in extracted_files:
             os.remove(file)
 
-##extract video command 
+
+
+##extract video command
 @Client.on_message(filters.command("extractvideo") & filters.chat(GROUP))
 async def extract_video(bot, msg: Message):
     global EXTRACT_ENABLED
@@ -2309,12 +2422,17 @@ async def extract_video(bot, msg: Message):
     if not media:
         return await msg.reply_text("Please reply to a valid video or document file with the extractvideo command.")
 
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Extracting", "Queued")
+    await bot.send_message(GROUP, f"Extracting video task added by {username} ({user_id})")    
+        
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
     try:
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🎥 Extracting video stream... ⚡")
@@ -2325,6 +2443,7 @@ async def extract_video(bot, msg: Message):
     except Exception as e:
         await safe_edit_message(sts, f"Error extracting video stream: {e}")
         os.remove(downloaded)
+        await db.update_task(task_id, status="Failed", error_message=str(e))
         return
 
     await safe_edit_message(sts, "🔼 Uploading extracted video... ⚡")
@@ -2343,13 +2462,17 @@ async def extract_video(bot, msg: Message):
             "Video stream extracted and sent to your PM in the bot!"
         )
 
+        # Update task to completed
+        await db.update_task(task_id, status="Completed")
         await sts.delete()
     except Exception as e:
         await safe_edit_message(sts, f"Error uploading extracted video: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
     finally:
         os.remove(downloaded)
         if os.path.exists(output_file):
             os.remove(output_file)
+
 
 # Command handler for /list
 @Client.on_message(filters.command("list") & filters.chat(GROUP))
@@ -2529,84 +2652,7 @@ async def ytdlleech_handler(client: Client, msg: Message):
     except Exception as e:
         await msg.reply_text(f"Error: {e}")
 
-@Client.on_callback_query(filters.regex(r"^\d+$"))
-async def callback_query_handler(client: Client, query):
-    user_id = query.from_user.id
-    format_id = query.data
 
-    selection = await db.get_user_quality_selection(user_id)
-    if not selection:
-        return await query.answer("No download in progress.")
-
-    url = selection['url']
-    video_title = selection['title']
-    formats = selection['formats']
-
-    selected_format = next((f for f in formats if f['format_id'] == format_id), None)
-    if not selected_format:
-        return await query.answer("Invalid format selection.")
-
-    quality = selected_format.get('format_note', 'Unknown')
-    file_size = selected_format.get('filesize', 0)
-    file_name = f"{video_title} - {quality}.mkv"
-
-    sts = await query.message.reply_text(f"🚀 Downloading {quality} - {humanbytes(file_size)}... ⚡")
-
-    ydl_opts = {
-        'format': f'{format_id}+bestaudio/best',
-        'outtmpl': file_name,
-        'quiet': True,
-        'noplaylist': True,
-        'progress_hooks': [await progress_hook(status_message=sts)],
-        'merge_output_format': 'mkv'
-    }
-
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
-        if not os.path.exists(file_name):
-            return await safe_edit_message(sts, "Error: Download failed. File not found.")
-        
-        # No thumbnail downloading
-        file_thumb = None
-        
-        if file_size >= FILE_SIZE_LIMIT:
-            await safe_edit_message(sts, "💠 Uploading to Google Drive... ⚡")
-            file_link = await upload_to_google_drive(file_name, file_name, sts)
-            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
-            await query.message.reply_text(
-                f"**File successfully uploaded to Google Drive!**\n\n"
-                f"**Google Drive Link**: [View File]({file_link})\n\n"
-                f"**Uploaded File**: {file_name}\n"
-                f"**Size**: {humanbytes(file_size)}",
-                reply_markup=InlineKeyboardMarkup(button)
-            )
-        else:
-            await safe_edit_message(sts, "💠 Uploading to Telegram... ⚡")
-            caption = f"**Uploaded Document 📄**: {file_name}\n\n🌟 Size: {humanbytes(file_size)}"
-            
-            try:
-                with open(file_name, 'rb') as file:
-                    await query.message.reply_document(
-                        document=file,
-                        caption=caption,
-                        thumb=file_thumb,  # No thumbnail
-                        progress=progress_message,
-                        progress_args=("💠 Upload Started... ⚡", sts, time.time())
-                    )
-            except Exception as e:
-                await safe_edit_message(sts, f"Error uploading file: {e}")
-                return
-
-    except Exception as e:
-        await safe_edit_message(sts, f"Error: {e}")
-
-    finally:
-        if os.path.exists(file_name):
-            os.remove(file_name)
-        await sts.delete()
-        await query.message.delete()
 
 @Client.on_message(filters.command("mediainfo") & filters.chat(GROUP))
 async def mediainfo_handler(client: Client, message: Message):
