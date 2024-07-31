@@ -897,8 +897,8 @@ async def change_metadata(bot, msg: Message):
         await db.update_task(task_id, "Failed")
 
 
-@Client.on_message(filters.command("multitask") & filters.chat(GROUP))
-async def multitask(bot, msg: Message):
+@Client.on_message(filters.command("multitaskfile") & filters.chat(GROUP))
+async def filemultitask(bot, msg: Message):
     global METADATA_ENABLED, CHANGE_INDEX_ENABLED
 
     if not (METADATA_ENABLED and CHANGE_INDEX_ENABLED):
@@ -1609,7 +1609,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
 
         await sts.delete()
 
-  @Client.on_message(filters.command("leech") & filters.chat(GROUP))
+@Client.on_message(filters.command("leech") & filters.chat(GROUP))
 async def linktofile(bot, msg: Message):
     if len(msg.command) < 2 or not msg.reply_to_message:
         return await msg.reply_text("Please reply to a file, video, audio, or link with the desired filename and extension (e.g., `.mkv`, `.mp4`, `.zip`).")
@@ -2282,6 +2282,8 @@ async def extract_audios(bot, msg):
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the extractaudios command.")
 
+    user_id = msg.from_user.id
+    
     # Add task to the database
     task_id = await db.add_task(user_id, username, "Extracting", "Queued")
     await bot.send_message(GROUP, f"Extracting audio streams task added by {username} ({user_id})")    
@@ -2352,6 +2354,8 @@ async def extract_subtitles(bot, msg):
     if not media:
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the extractsubtitles command.")
 
+    user_id = msg.from_user.id
+    
     # Add task to the database
     task_id = await db.add_task(user_id, username, "Extracting", "Queued")
     await bot.send_message(GROUP, Extracting subtitles task added by {username} ({user_id})")    
@@ -2422,6 +2426,8 @@ async def extract_video(bot, msg: Message):
     if not media:
         return await msg.reply_text("Please reply to a valid video or document file with the extractvideo command.")
 
+    user_id = msg.from_user.id
+    
     # Add task to the database
     task_id = await db.add_task(user_id, username, "Extracting", "Queued")
     await bot.send_message(GROUP, f"Extracting video task added by {username} ({user_id})")    
@@ -2593,7 +2599,7 @@ async def clean_files(bot, msg: Message):
 
 
 
-#Downloading Progress Hook For YouTube In logs work process 
+# Downloading Progress Hook for YouTube in logs work process
 async def progress_hook(status_message):
     async def hook(d):
         if d['status'] == 'downloading':
@@ -2619,7 +2625,13 @@ async def ytdlleech_handler(client: Client, msg: Message):
         'noplaylist': True,
         'merge_output_format': 'mkv'
     }
-
+   
+    user_id = msg.from_user.id
+    
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Downloading YouTube video", "Queued")
+    await bot.send_message(GROUP, f"Downloading YouTube video task added by {username} ({user_id})")    
+   
     try:
         with YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=False)
@@ -2639,7 +2651,7 @@ async def ytdlleech_handler(client: Client, msg: Message):
                 'title': info_dict['title'],
                 'thumbnail': info_dict.get('thumbnail')  # No default thumbnail path
             }
-            await db.save_file_data(msg.from_user.id, file_data)
+            await db.save_file_data(user_id, file_data)
 
             user_quality_selection = {
                 'url': url,
@@ -2647,10 +2659,98 @@ async def ytdlleech_handler(client: Client, msg: Message):
                 'thumbnail': info_dict.get('thumbnail'),
                 'formats': formats
             }
-            await db.save_user_quality_selection(msg.from_user.id, user_quality_selection)
+            await db.save_user_quality_selection(user_id, user_quality_selection)
 
     except Exception as e:
         await msg.reply_text(f"Error: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
+
+@Client.on_callback_query(filters.regex(r"^\d+$"))
+async def callback_query_handler(client: Client, query):
+    user_id = query.from_user.id
+    format_id = query.data
+
+    selection = await db.get_user_quality_selection(user_id)
+    if not selection:
+        return await query.answer("No download in progress.")
+
+    url = selection['url']
+    video_title = selection['title']
+    formats = selection['formats']
+
+    selected_format = next((f for f in formats if f['format_id'] == format_id), None)
+    if not selected_format:
+        return await query.answer("Invalid format selection.")
+
+    quality = selected_format.get('format_note', 'Unknown')
+    file_size = selected_format.get('filesize', 0)
+    new_name = f"{video_title} - {quality}.mkv"  # Updated variable name
+
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, f"Downloading video in {quality}", "Queued")
+    await bot.send_message(GROUP, f"Downloading video in {quality} task added by {username} ({user_id})")             
+
+    sts = await query.message.reply_text(f"🚀 Downloading {quality} - {humanbytes(file_size)}... ⚡")
+
+    ydl_opts = {
+        'format': f'{format_id}+bestaudio/best',
+        'outtmpl': new_name,  # Updated variable name
+        'quiet': True,
+        'noplaylist': True,
+        'progress_hooks': [await progress_hook(status_message=sts)],
+        'merge_output_format': 'mkv'
+    }
+
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+
+        if not os.path.exists(new_name):  # Updated variable name
+            return await safe_edit_message(sts, "Error: Download failed. File not found.")
+        
+        # No thumbnail downloading
+        file_thumb = None
+        
+        if file_size >= FILE_SIZE_LIMIT:
+            await safe_edit_message(sts, "💠 Uploading to Google Drive... ⚡")
+            file_link = await upload_to_google_drive(new_name, new_name, sts)  # Updated variable name
+            button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
+            await query.message.reply_text(
+                f"**File successfully uploaded to Google Drive!**\n\n"
+                f"**Google Drive Link**: [View File]({file_link})\n\n"
+                f"**Uploaded File**: {new_name}\n"  # Updated variable name
+                f"**Size**: {humanbytes(file_size)}",
+                reply_markup=InlineKeyboardMarkup(button)
+            )
+        else:
+            await safe_edit_message(sts, "💠 Uploading to Telegram... ⚡")
+            caption = f"**Uploaded Document 📄**: {new_name}\n\n🌟 Size: {humanbytes(file_size)}"  # Updated variable name
+            
+            try:
+                with open(new_name, 'rb') as file:  # Updated variable name
+                    await query.message.reply_document(
+                        document=file,
+                        caption=caption,
+                        thumb=file_thumb,  # No thumbnail
+                        progress=progress_message,
+                        progress_args=("💠 Upload Started... ⚡", sts, time.time())
+                    )
+            except Exception as e:
+                await safe_edit_message(sts, f"Error uploading file: {e}")
+                return
+
+        # Update task to completed
+        await db.update_task(task_id, status="Completed")
+
+    except Exception as e:
+        await safe_edit_message(sts, f"Error: {e}")
+        await db.update_task(task_id, status="Failed", error_message=str(e))
+
+    finally:
+        if os.path.exists(new_name):  # Updated variable name
+            os.remove(new_name)  # Updated variable name
+        await sts.delete()
+        await query.message.delete()
 
 
 
@@ -2737,11 +2837,17 @@ async def get_mod_apk(bot, msg: Message):
     
     # Extract URL from command arguments
     apk_url = msg.command[1]
-
+    user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
+    
     # Validate URL
     if not (apk_url.startswith("https://files.getmodsapk.com/") or apk_url.startswith("https://file.gamedva.com/")):
         return await msg.reply_text("Please provide a valid URL from getmodsapk.com or gamedva.com.")
-
+    
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Downloading Getmodsapk", "Queued")
+    await bot.send_message(GROUP, f"Getmodsapk task added by {username} ({user_id})")
+    
     # Downloading and sending the file
     sts = await msg.reply_text("🚀 Downloading APK... ⚡️")
     try:
@@ -2749,23 +2855,29 @@ async def get_mod_apk(bot, msg: Message):
             async with session.get(apk_url) as response:
                 if response.status == 200:
                     # Extract filename from URL
-                    file_name = apk_url.split("/")[-1]
+                    new_name = apk_url.split("/")[-1]
 
                     # Write the downloaded content to a temporary file
-                    with open(file_name, 'wb') as f:
+                    with open(new_name, 'wb') as f:
                         f.write(await response.read())
 
                     # Send the APK file as a document
-                    await bot.send_document(msg.chat.id, document=file_name, caption=f"Downloaded from {apk_url}")
+                    await bot.send_document(msg.chat.id, document=new_name, caption=f"Downloaded from {apk_url}")
 
                     # Clean up: delete the downloaded file
-                    os.remove(file_name)
+                    os.remove(new_name)
 
                     await sts.edit("✅ APK sent successfully!")
+                    # Update task to completed
+                    await db.update_task(task_id, status="Completed")
                 else:
                     await sts.edit("❌ Failed to download APK.")
+                    # Update task to failed
+                    await db.update_task(task_id, status="Failed", error_message="Failed to download APK.")
     except Exception as e:
         await sts.edit(f"❌ Error: {str(e)}")
+        # Update task to failed
+        await db.update_task(task_id, status="Failed", error_message=str(e))
 
     await sts.delete()
 
