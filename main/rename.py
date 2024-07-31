@@ -2364,7 +2364,7 @@ async def extract_subtitles(bot, msg):
     
     # Add task to the database
     task_id = await db.add_task(user_id, username, "Extracting", "Queued")
-    await bot.send_message(GROUP, Extracting subtitles task added by {username} ({user_id})")    
+    await bot.send_message(GROUP, "Extracting subtitles task added by {username} ({user_id})")    
     
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
     c_time = time.time()
