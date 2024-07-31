@@ -648,7 +648,7 @@ async def mirror_to_google_drive(bot, msg: Message):
         sts = await msg.reply_text("🚀 Downloading...")
         
         # Update task status
-        await db.update_task(task_id, "Downloading")
+        await db.update_task_status(task_id, "Downloading")
         
         # Download the file
         downloaded_file = await bot.download_media(
@@ -666,7 +666,7 @@ async def mirror_to_google_drive(bot, msg: Message):
         start_time = time.time()
 
         # Update task status
-        await db.update_task(task_id, "Uploading")
+        await db.update_task_status(task_id, "Uploading")
 
         # Upload file to Google Drive
         file_metadata = {'name': new_name, 'parents': [gdrive_folder_id]}
@@ -703,11 +703,11 @@ async def mirror_to_google_drive(bot, msg: Message):
         )
         os.remove(downloaded_file)
         await sts.delete()
-        await db.update_task(task_id, "Completed")
+        await db.update_task_status(task_id, "Completed")
 
     except Exception as e:
         await sts.edit(f"Error: {e}")
-        await db.update_task(task_id, "Failed")
+        await db.update_task_status(task_id, "Failed")
 
 #Rename Command
 @Client.on_message(filters.command("rename") & filters.chat(GROUP))
@@ -735,7 +735,7 @@ async def rename_file(bot, msg):
         sts = await msg.reply_text("🚀 Downloading...")
         
         # Update task status
-        await db.update_task(task_id, "Downloading")
+        await db.update_task_status(task_id, "Downloading")
         
         # Download the file
         downloaded_file = await reply.download(file_name=new_name, progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, time.time(), new_name, username, "Rename"))
@@ -768,7 +768,7 @@ async def rename_file(bot, msg):
         # Update task status for uploading
         await sts.edit("💠 Uploading...")
         start_time = time.time()
-        await db.update_task(task_id, "Uploading")
+        await db.update_task_status(task_id, "Uploading")
 
         if os.path.getsize(downloaded_file) > FILE_SIZE_LIMIT:
             file_link = await upload_to_google_drive(downloaded_file, new_name, sts)
@@ -781,11 +781,11 @@ async def rename_file(bot, msg):
 
         os.remove(downloaded_file)
         await sts.delete()
-        await db.update_task(task_id, "Completed")
+        await db.update_task_status(task_id, "Completed")
 
     except Exception as e:
         await sts.edit(f"Error: {e}")
-        await db.update_task(task_id, "Failed")
+        await db.update_task_status(task_id, "Failed")
 
 
 
@@ -834,7 +834,7 @@ async def change_metadata(bot, msg: Message):
 
     try:
         # Update task status
-        await db.update_task(task_id, "Downloading")
+        await db.update_task_status(task_id, "Downloading")
 
         # Download the file
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time, new_name, username, "Change Metadata"))
@@ -872,7 +872,7 @@ async def change_metadata(bot, msg: Message):
         c_time = time.time()
 
         # Update task status for uploading
-        await db.update_task(task_id, "Uploading")
+        await db.update_task_status(task_id, "Uploading")
 
         if filesize > FILE_SIZE_LIMIT:
             file_link = await upload_to_google_drive(output_file, new_name, sts)
@@ -896,11 +896,11 @@ async def change_metadata(bot, msg: Message):
         if file_thumb and os.path.exists(file_thumb):
             os.remove(file_thumb)
         await sts.delete()
-        await db.update_task(task_id, "Completed")
+        await db.update_task_status(task_id, "Completed")
 
     except Exception as e:
         await sts.edit(f"Error: {e}")
-        await db.update_task(task_id, "Failed")
+        await db.update_task_status(task_id, "Failed")
 
 
 @Client.on_message(filters.command("multitaskfile") & filters.chat(GROUP))
@@ -948,7 +948,7 @@ async def filemultitask(bot, msg: Message):
     c_time = time.time()
     try:
         # Update task status
-        await db.update_task(task_id, "Downloading")
+        await db.update_task_status(task_id, "Downloading")
 
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time, output_filename, msg.from_user.username or msg.from_user.first_name, "Change Index and Metadata"))
     except Exception as e:
@@ -1017,7 +1017,7 @@ async def filemultitask(bot, msg: Message):
     c_time = time.time()
 
     # Update task status for uploading
-    await db.update_task(task_id, "Uploading")
+    await db.update_task_status(task_id, "Uploading")
 
     if filesize > FILE_SIZE_LIMIT:
         file_link = await upload_to_google_drive(output_file, output_filename, sts)
@@ -1050,7 +1050,7 @@ async def filemultitask(bot, msg: Message):
     if file_thumb and os.path.exists(file_thumb):
         os.remove(file_thumb)
     await sts.delete()
-    await db.update_task(task_id, "Completed")
+    await db.update_task_status(task_id, "Completed")
 
 @Client.on_message(filters.command("attachphoto") & filters.chat(GROUP))
 async def attach_photo(bot, msg: Message):
