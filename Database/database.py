@@ -41,7 +41,7 @@ class Database:
         })
         return task_id.inserted_id
 
-    async def update_task(self, task_id, status):
+    async def update_task_status(self, task_id, status):
         await self.tasks_col.update_one(
             {"_id": ObjectId(task_id)},
             {"$set": {"status": status}}
