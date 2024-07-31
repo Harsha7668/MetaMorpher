@@ -1881,6 +1881,7 @@ async def remove_tags(bot, msg):
 @Client.on_message(filters.command("screenshots") & filters.chat(GROUP))
 async def screenshots_command(client, message: Message):
     user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
 
     # Fetch user settings for screenshots count
     num_screenshots = await db.get_screenshots_count(user_id)
@@ -1895,14 +1896,21 @@ async def screenshots_command(client, message: Message):
         return await message.reply_text("Please reply to a valid video file.")
 
     sts = await message.reply_text("🚀 Downloading media... ⚡")
+    
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Generate Screenshots", "Queued")
+    await client.send_message(GROUP, f"Generate Screenshots Task is added by {username} ({user_id})")
+
     try:
         input_path = await client.download_media(media)
     except Exception as e:
         await sts.edit(f"Error downloading media: {e}")
+        await db.update_task_status(task_id, "Failed")
         return
 
     if not os.path.exists(input_path):
         await sts.edit("Error: The downloaded file does not exist.")
+        await db.update_task_status(task_id, "Failed")
         return
 
     try:
@@ -1913,10 +1921,12 @@ async def screenshots_command(client, message: Message):
     except subprocess.CalledProcessError as e:
         await sts.edit(f"Error reading video duration: {e.output.decode('utf-8')}")
         os.remove(input_path)
+        await db.update_task_status(task_id, "Failed")
         return
     except ValueError:
         await sts.edit("Error reading video duration: Unable to convert duration to float.")
         os.remove(input_path)
+        await db.update_task_status(task_id, "Failed")
         return
 
     interval = duration / num_screenshots
@@ -1936,98 +1946,33 @@ async def screenshots_command(client, message: Message):
             for path in screenshot_paths:
                 os.remove(path)
             os.remove(input_path)
+            await db.update_task_status(task_id, "Failed")
             return
 
         screenshot_paths.append(screenshot_path)
 
-        # Upload screenshot to user's PM
         try:
             await client.send_photo(chat_id=user_id, photo=screenshot_path)
         except Exception as e:
             await sts.edit(f"Error uploading screenshot {i+1}: {e}")
             os.remove(screenshot_path)
 
-        os.remove(screenshot_path)  # Remove local screenshot after uploading
+        os.remove(screenshot_path)
 
-    # Save screenshot paths to database
     await db.save_screenshot_paths(user_id, screenshot_paths)
 
-    os.remove(input_path)  # Remove downloaded media file
+    os.remove(input_path)
 
-    # Send notification in group chat
     try:
         await message.reply_text("📸 Screenshots have been sent to your PM.")
     except Exception as e:
         print(f"Failed to send notification: {e}")
 
-    # Cleanup: Delete screenshot paths from database after sending
     await db.delete_screenshot_paths(user_id)
-
-    await sts.delete()  # Delete the status message after completion
-
-
-@Client.on_message(filters.command("samplevideo") & filters.chat(GROUP))
-async def sample_video(bot, msg):
-    user_id = msg.from_user.id
-
-    # Fetch user settings
-    sample_video_duration = await db.get_sample_video_duration(user_id)
-
-    if sample_video_duration is None:
-        return await msg.reply_text("Please set a valid sample video duration using /usersettings.")
-
-    if not msg.reply_to_message:
-        return await msg.reply_text("Please reply to a valid video file or document.")
-
-    media = msg.reply_to_message.video or msg.reply_to_message.document
-    if not media:
-        return await msg.reply_text("Please reply to a valid video file or document.")
-
-    sts = await msg.reply_text("🚀 Downloading media... ⚡")
-    c_time = time.time()
-    try:
-        input_path = await bot.download_media(media, progress=progress_message, progress_args=("🚀 Downloading media... ⚡️", sts, c_time))
-    except Exception as e:
-        await sts.edit(f"Error downloading media: {e}")
-        return
-
-    output_file = f"sample_video_{sample_video_duration}s.mp4"
-
-    await sts.edit("🚀 Processing sample video... ⚡")
-    try:
-        generate_sample_video(input_path, sample_video_duration, output_file)
-    except Exception as e:
-        await sts.edit(f"Error generating sample video: {e}")
-        os.remove(input_path)
-        return
-
-    filesize = os.path.getsize(output_file)
-    filesize_human = humanbytes(filesize)
-    cap = f"{os.path.basename(output_file)}\n\n🌟 Size: {filesize_human}"
-
-    await sts.edit("💠 Uploading sample video to your PM... ⚡")
-    c_time = time.time()
-    try:
-        await bot.send_document(
-            user_id, 
-            document=output_file, 
-            caption=cap, 
-            progress=progress_message, 
-            progress_args=("💠 Upload Started... ⚡️", sts, c_time)
-        )
-        # Save sample video settings to database
-        await db.save_sample_video_settings(user_id, sample_video_duration, "Not set")
-
-        # Send notification about the file upload
-        await msg.reply_text(f"File Sample Video has been uploaded to your PM. Check your PM of the bot ✅ .")
-
-    except Exception as e:
-        await sts.edit(f"Error uploading sample video: {e}")
-        return
-
-    os.remove(input_path)
-    os.remove(output_file)
+    await db.update_task_status(task_id, "Completed")
     await sts.delete()
+
+
 
  # Define restart_app command
 @Client.on_message(filters.command("restart") & filters.chat(AUTH_USERS))
