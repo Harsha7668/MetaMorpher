@@ -27,10 +27,9 @@ class Database:
         return tasks
 
     async def delete_completed_tasks(self):
-        filter_criteria = {'status': 'completed'}  # Adjust to match your actual completed status value
+        filter_criteria = {'status': 'completed'}
         result = await self.tasks_col.delete_many(filter_criteria)
-        return result.deleted_count    
-   
+        return result.deleted_count
 
     async def add_task(self, user_id, username, task_type, status):
         task_id = await self.tasks_col.insert_one({
@@ -42,8 +41,6 @@ class Database:
         })
         return task_id.inserted_id
 
-    
-
     async def update_task(self, task_id, status):
         await self.tasks_col.update_one(
             {"_id": ObjectId(task_id)},
@@ -52,6 +49,7 @@ class Database:
 
     async def get_task(self, task_id):
         return await self.tasks_col.find_one({"_id": ObjectId(task_id)})
+
     
     async def save_photo(self, user_id, file_id):
         try:
