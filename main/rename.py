@@ -2061,96 +2061,64 @@ async def restart_app(bot, msg):
         
 
 # Command to unzip a zip file
-
-
-
-@Client.on_message(filters.command("gofile") & filters.chat(GROUP))
-async def gofile_upload(bot, msg: Message):
+@Client.on_message(filters.command("unzip") & filters.chat(GROUP))
+async def unzip(bot, msg):
     user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
 
-    # Retrieve the user's Gofile API key from the database
-    gofile_api_key = await db.get_gofile_api_key(user_id)
+    if not msg.reply_to_message:
+        return await msg.reply_text("Please reply to a zip file to unzip.")
 
-    if not gofile_api_key:
-        return await msg.reply_text("Gofile API key is not set. Use /gofilesetup {your_api_key} to set it.")
+    media = msg.reply_to_message.document
+    if not media or not media.file_name.endswith('.zip'):
+        return await msg.reply_text("Please reply to a valid zip file.")
 
-    reply = msg.reply_to_message
-    if not reply or not reply.document and not reply.video:
-        return await msg.reply_text("Please reply to a file or video to upload to Gofile.")
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Unzip File", "Queued")
+    await bot.send_message(GROUP, f"Unzip File Task is added by {username} ({user_id})")
 
-    media = reply.document or reply.video
-    custom_name = None
-
-    # Check if a custom name is provided
-    args = msg.text.split(" ", 1)
-    if len(args) == 2:
-        custom_name = args[1]
-        await db.save_custom_name(user_id, custom_name)  # Save custom name to database
-
-    # Use custom name if available, otherwise use the file name
-    file_name = custom_name or media.file_name
-
-    sts = await msg.reply_text("🚀 Uploading to Gofile...")
+    sts = await msg.reply_text("🚀 Downloading file... ⚡")
     c_time = time.time()
-    
-    downloaded_file = None
+    input_path = await bot.download_media(media, progress=progress_message, progress_args=("🚀 Downloading file... ⚡️", sts, c_time))
 
+    if not os.path.exists(input_path):
+        await sts.edit(f"Error: The downloaded file does not exist.")
+        await db.update_task_status(task_id, "Failed")
+        return
+
+    extract_path = os.path.join("extracted")
+    os.makedirs(extract_path, exist_ok=True)
+
+    await sts.edit("🚀 Unzipping file... ⚡")
     try:
-        async with aiohttp.ClientSession() as session:
-            # Get available servers
-            async with session.get("https://api.gofile.io/servers") as resp:
-                if resp.status != 200:
-                    return await sts.edit(f"Failed to get servers. Status code: {resp.status}")
-
-                data = await resp.json()
-                servers = data.get("data", {}).get("servers", [])
-                if not servers:
-                    return await sts.edit("No servers available.")
-                
-                server_name = servers[0].get("name")  # Use the server name
-                if not server_name:
-                    return await sts.edit("Server name is missing.")
-                
-                upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
-
-            # Download the media file
-            downloaded_file = await bot.download_media(
-                media,
-                file_name=file_name,  # Use custom or original filename directly
-                progress=progress_message,
-                progress_args=("🚀 Download Started...", sts, c_time)
-            )
-
-            # Upload the file to Gofile
-            with open(downloaded_file, "rb") as file:
-                form_data = aiohttp.FormData()
-                form_data.add_field("file", file, filename=file_name)
-                headers = {"Authorization": f"Bearer {gofile_api_key}"} if gofile_api_key else {}
-
-                async with session.post(
-                    upload_url,
-                    headers=headers,
-                    data=form_data
-                ) as resp:
-                    if resp.status != 200:
-                        return await sts.edit(f"Upload failed: Status code {resp.status}")
-
-                    response = await resp.json()
-                    if response["status"] == "ok":
-                        download_url = response["data"]["downloadPage"]
-                        await sts.edit(f"Upload successful!\nDownload link: {download_url}")
-                    else:
-                        await sts.edit(f"Upload failed: {response['message']}")
-
+        extracted_files = unzip_file(input_path, extract_path)
     except Exception as e:
-        await sts.edit(f"Error during upload: {e}")
+        await sts.edit(f"Error unzipping file: {e}")
+        await db.update_task_status(task_id, "Failed")
+        os.remove(input_path)
+        shutil.rmtree(extract_path)
+        return
 
-    finally:
+    if extracted_files:
+        await sts.edit(f"✅ File unzipped successfully. Uploading extracted files... ⚡")
         try:
-            if downloaded_file and os.path.exists(downloaded_file):
-                os.remove(downloaded_file)
+            await upload_files(bot, msg.chat.id, extract_path)
+            await sts.edit(f"✅ All extracted files uploaded successfully.")
+            # Save extracted files to database
+            await db.save_extracted_files(user_id, extracted_files)
+            await db.update_task_status(task_id, "Completed")
         except Exception as e:
-            print(f"Error deleting file: {e}")
+            await sts.edit(f"Error uploading extracted files: {e}")
+            await db.update_task_status(task_id, "Failed")
+    else:
+        await sts.edit(f"❌ Failed to unzip file.")
+        await db.update_task_status(task_id, "Failed")
+
+    os.remove(input_path)
+    shutil.rmtree(extract_path)
+
+
+
 
 
 
