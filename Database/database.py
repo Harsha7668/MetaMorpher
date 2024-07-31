@@ -227,11 +227,12 @@ class Database:
         if user:
             return user.get('settings', {}).get('gofile_api_key')
         return None
-        
-    async def save_custom_name(self, user_id, custom_name):
+
+
+    async def save_custom_name(self, user_id, new_name):
         await self.users_col.update_one(
             {'id': user_id},
-            {'$set': {'settings.custom_name': custom_name}},
+            {'$set': {'settings.custom_name': new_name}},
             upsert=True
         )
 
@@ -239,7 +240,8 @@ class Database:
         user = await self.users_col.find_one({'id': user_id})
         if user:
             return user.get('settings', {}).get('custom_name')
-        return None
+        return None    
+            
         
     async def save_gdrive_folder_id(self, user_id, folder_id):
         await self.users_col.update_one({'id': user_id}, {'$set': {'settings.gdrive_folder_id': folder_id}}, upsert=True)
@@ -356,20 +358,24 @@ class Database:
             print(f"Error clearing merged file info from database: {e}")
             # Handle the error accordingly (logging, exception handling, etc.)
 
-    async def save_new_filename(self, user_id, new_filename):
+
+
+    async def save_new_name(self, user_id, new_name):
         # Save new filename information to MongoDB
         await self.files_col.update_one(
             {'id': user_id},
-            {'$set': {'new_filename': new_filename}},
+            {'$set': {'new_name': new_name}},
             upsert=True
         )
 
-    async def get_new_filename(self, user_id):
+    async def get_new_name(self, user_id):
         # Retrieve new filename information from MongoDB
         file_data = await self.files_col.find_one({'id': user_id})
         if file_data:
-            return file_data.get('new_filename')
+            return file_data.get('new_name')
         return None
+
+    
     
     async def save_screenshot_paths(self, user_id, screenshot_paths):
         result = await self.users_col.update_one(
