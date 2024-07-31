@@ -1972,7 +1972,78 @@ async def screenshots_command(client, message: Message):
     await db.update_task_status(task_id, "Completed")
     await sts.delete()
 
+@Client.on_message(filters.command("samplevideo") & filters.chat(GROUP))
+async def sample_video(bot, msg):
+    user_id = msg.from_user.id
+    username = msg.from_user.username or msg.from_user.first_name
 
+    # Fetch user settings
+    sample_video_duration = await db.get_sample_video_duration(user_id)
+
+    if sample_video_duration is None:
+        return await msg.reply_text("Please set a valid sample video duration using /usersettings.")
+
+    if not msg.reply_to_message:
+        return await msg.reply_text("Please reply to a valid video file or document.")
+
+    media = msg.reply_to_message.video or msg.reply_to_message.document
+    if not media:
+        return await msg.reply_text("Please reply to a valid video file or document.")
+
+    sts = await msg.reply_text("🚀 Downloading media... ⚡")
+
+    # Add task to the database
+    task_id = await db.add_task(user_id, username, "Generate Sample Video", "Queued")
+    await bot.send_message(GROUP, f"Generate Sample Video Task is added by {username} ({user_id})")
+
+    c_time = time.time()
+    try:
+        input_path = await bot.download_media(media, progress=progress_message, progress_args=("🚀 Downloading media... ⚡️", sts, c_time))
+    except Exception as e:
+        await sts.edit(f"Error downloading media: {e}")
+        await db.update_task_status(task_id, "Failed")
+        return
+
+    output_file = f"sample_video_{sample_video_duration}s.mp4"
+
+    await sts.edit("🚀 Processing sample video... ⚡")
+    try:
+        generate_sample_video(input_path, sample_video_duration, output_file)
+    except Exception as e:
+        await sts.edit(f"Error generating sample video: {e}")
+        os.remove(input_path)
+        await db.update_task_status(task_id, "Failed")
+        return
+
+    filesize = os.path.getsize(output_file)
+    filesize_human = humanbytes(filesize)
+    cap = f"{os.path.basename(output_file)}\n\n🌟 Size: {filesize_human}"
+
+    await sts.edit("💠 Uploading sample video to your PM... ⚡")
+    c_time = time.time()
+    try:
+        await bot.send_document(
+            user_id, 
+            document=output_file, 
+            caption=cap, 
+            progress=progress_message, 
+            progress_args=("💠 Upload Started... ⚡️", sts, c_time)
+        )
+        # Save sample video settings to database
+        await db.save_sample_video_settings(user_id, sample_video_duration, "Not set")
+
+        # Send notification about the file upload
+        await msg.reply_text(f"File Sample Video has been uploaded to your PM. Check your PM of the bot ✅ .")
+        await db.update_task_status(task_id, "Completed")
+
+    except Exception as e:
+        await sts.edit(f"Error uploading sample video: {e}")
+        await db.update_task_status(task_id, "Failed")
+        return
+
+    os.remove(input_path)
+    os.remove(output_file)
+    await sts.delete()
 
  # Define restart_app command
 @Client.on_message(filters.command("restart") & filters.chat(AUTH_USERS))
@@ -1990,41 +2061,7 @@ async def restart_app(bot, msg):
         
 
 # Command to unzip a zip file
-@Client.on_message(filters.command("unzip") & filters.chat(GROUP))
-async def unzip(bot, msg):
-    if not msg.reply_to_message:
-        return await msg.reply_text("Please reply to a zip file to unzip.")
 
-    media = msg.reply_to_message.document
-    if not media or not media.file_name.endswith('.zip'):
-        return await msg.reply_text("Please reply to a valid zip file.")
-
-    sts = await msg.reply_text("🚀Downloading file...⚡")
-    c_time = time.time()
-    input_path = await bot.download_media(media, progress=progress_message, progress_args=("🚀Downloading file...⚡️", sts, c_time))
-
-    if not os.path.exists(input_path):
-        await sts.edit(f"Error: The downloaded file does not exist.")
-        return
-
-    extract_path = os.path.join("extracted")
-    os.makedirs(extract_path, exist_ok=True)
-
-    await sts.edit("🚀Unzipping file...⚡")
-    extracted_files = unzip_file(input_path, extract_path)
-
-    if extracted_files:
-        await sts.edit(f"✅ File unzipped successfully. Uploading extracted files...⚡")
-        await upload_files(bot, msg.chat.id, extract_path)
-        await sts.edit(f"✅ All extracted files uploaded successfully.")
-
-        # Save extracted files to database
-        await db.save_extracted_files(msg.from_user.id, extracted_files)
-    else:
-        await sts.edit(f"❌ Failed to unzip file.")
-
-    os.remove(input_path)
-    shutil.rmtree(extract_path)
 
 
 @Client.on_message(filters.command("gofile") & filters.chat(GROUP))
