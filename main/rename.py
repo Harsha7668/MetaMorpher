@@ -1062,8 +1062,8 @@ async def attach_photo(bot, msg: Message):
     user_id = msg.from_user.id
 
     # Add a new task to the user tasks schema
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Attach Photo", "Queued")
-    await bot.send_message(GROUP, f"Attach Photo Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+    task_id = await db.add_task(user_id, username, "Attach Photo", "Queued")
+    await bot.send_message(GROUP, f"Attach Photo Task is added by {username} ({user_id})")
 
     reply = msg.reply_to_message
     if not reply:
@@ -1206,8 +1206,8 @@ async def change_index_audio(bot, msg):
     user_id = msg.from_user.id
 
     # Add a new task to the user tasks schema
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Change Index Audio", "Queued")
-    await bot.send_message(GROUP, f"Change Index Audio Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+    task_id = await db.add_task(user_id,  username, "Change Index Audio", "Queued")
+    await bot.send_message(GROUP, f"Change Index Audio Task is added by {username} ({user_id})")
 
     reply = msg.reply_to_message
     if not reply:
@@ -1347,8 +1347,8 @@ async def change_index_subtitle(bot, msg):
     user_id = msg.from_user.id
 
     # Add a new task to the user tasks schema
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Change Index Subtitle", "Queued")
-    await bot.send_message(GROUP, f"Change Index Subtitle Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+    task_id = await db.add_task(user_id,  username, "Change Index Subtitle", "Queued")
+    await bot.send_message(GROUP, f"Change Index Subtitle Task is added by {username} ({user_id})")
 
     reply = msg.reply_to_message
     if not reply:
@@ -1484,8 +1484,8 @@ async def start_merge_command(bot, msg: Message):
     merge_state[user_id] = {"files": [], "new_name": None, "is_merging": False}
 
     # Add a new task to the user tasks schema
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Start Merge Command", "Queued")
-    await bot.send_message(GROUP, f"Merge Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+    task_id = await db.add_task(user_id, username, "Start Merge Command", "Queued")
+    await bot.send_message(GROUP, f"Merge Task is added by {username} ({user_id})")
 
     await msg.reply_text("Send up to 10 video/document files one by one. Once done, send `/videomerge filename`.")
 
@@ -1526,7 +1526,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
         return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
 
     files_to_merge = merge_state[user_id]["files"]
-    new_name = merge_state[user_id].get("new_name", "merged_output.mp4")  # Default output filename
+    new_name = merge_state[user_id].get("new_name", "merged_Sunrises_24.mkv")  # Default output filename
     output_path = f"{new_name}"
 
     sts = await msg.reply_text("🚀 Starting merge process...")
@@ -1632,8 +1632,8 @@ async def linktofile(bot, msg: Message):
     c_time = time.time()
 
     user_id = msg.from_user.id
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Leech Command", "Queued")
-    await bot.send_message(GROUP, f"Leech Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+    task_id = await db.add_task(user_id, username, "Leech Command", "Queued")
+    await bot.send_message(GROUP, f"Leech Task is added by {username} ({user_id})")
 
     if reply.text and ("seedr" in reply.text or "workers" in reply.text):
         await handle_link_download(bot, msg, reply.text, new_name, media, sts, c_time, task_id)
@@ -1807,8 +1807,8 @@ async def remove_tags(bot, msg):
     c_time = time.time()
     
     user_id = msg.from_user.id
-    task_id = await db.add_task(user_id, msg.from_user.username or msg.from_user.first_name, "Remove Tags", "Queued")
-    await bot.send_message(GROUP, f"Remove Tags Task is added by {msg.from_user.username or msg.from_user.first_name} ({user_id})")
+    task_id = await db.add_task(user_id, username, "Remove Tags", "Queued")
+    await bot.send_message(GROUP, f"Remove Tags Task is added by {username} ({user_id})")
     
     try:
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
@@ -2675,6 +2675,7 @@ async def ytdlleech_handler(client: Client, msg: Message):
 async def callback_query_handler(client: Client, query):
     user_id = query.from_user.id
     format_id = query.data
+    username = query.from_user.username or msg.from_user.first_name    
 
     selection = await db.get_user_quality_selection(user_id)
     if not selection:
