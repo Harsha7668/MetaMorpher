@@ -535,6 +535,7 @@ async def save_photo(bot: Client, msg: Message):
     result = await db.save_photo(user_id, photo.file_id)
     await msg.reply_text(result)
     
+
 async def generate_task_list(page, tasks_per_page):
     tasks = await db.list_tasks(page, tasks_per_page)
     if not tasks:
@@ -601,6 +602,11 @@ async def tasklist_refresh_callback(bot, callback_query):
     ])
 
     await callback_query.edit_message_text(text, reply_markup=keyboard)
+
+@Client.on_message(filters.command("cleanuptasks") & filters.chat(GROUP))
+async def cleanup_tasks(bot, msg: Message):
+    deleted_count = await db.delete_completed_tasks()
+    await msg.reply_text(f"Deleted {deleted_count} completed tasks.")
 
 
 
