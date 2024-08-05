@@ -1343,8 +1343,6 @@ async def change_index_audio(bot, msg):
     await sts.delete()
     await db.update_task_status(task_id, "completed")
 
-
-
 @Client.on_message(filters.command("changeindexsub") & filters.chat(GROUP))
 async def change_index_subtitle(bot, msg):
     global CHANGE_INDEX_ENABLED
@@ -1356,7 +1354,7 @@ async def change_index_subtitle(bot, msg):
     username = msg.from_user.username or msg.from_user.first_name
 
     # Add a new task to the user tasks schema
-    task_id = await db.add_task(user_id,  username, "Change Index Subtitle", "Queued")
+    task_id = await db.add_task(user_id, username, "Change Index Subtitle", "Queued")
     await bot.send_message(GROUP, f"Change Index Subtitle Task is added by {username} ({user_id})")
 
     reply = msg.reply_to_message
@@ -1397,7 +1395,7 @@ async def change_index_subtitle(bot, msg):
     try:
         # Download the media file
         await db.update_task_status(task_id, "Downloading")
-        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time, new_name, username, "Download"))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
         await db.update_task_status(task_id, "failed")
@@ -1468,7 +1466,7 @@ async def change_index_subtitle(bot, msg):
                 thumb=file_thumb,
                 caption=cap,
                 progress=progress_message,
-                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+                progress_args=("💠 Upload Started... ⚡", sts, c_time, new_name, username, "Upload")
             )
         except Exception as e:
             await safe_edit_message(sts, f"Error: {e}")
@@ -1481,6 +1479,9 @@ async def change_index_subtitle(bot, msg):
         os.remove(file_thumb)
     await sts.delete()
     await db.update_task_status(task_id, "completed")
+
+
+    
     
         
 @Client.on_message(filters.command("merge") & filters.chat(GROUP))
