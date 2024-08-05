@@ -1481,7 +1481,7 @@ async def change_index_subtitle(bot, msg):
     await db.update_task_status(task_id, "completed")
 
 
-  @Client.on_message(filters.command("merge") & filters.chat(GROUP))
+@Client.on_message(filters.command("merge") & filters.chat(GROUP))
 async def start_merge_command(bot, msg: Message):
     global MERGE_ENABLED
     if not MERGE_ENABLED:
