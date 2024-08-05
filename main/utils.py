@@ -95,13 +95,11 @@ async def heroku_restart():
 async def download_media(msg, sts, task_id):
     c_time = time.time()
     try:
-        await db.update_task_status(task_id, "Downloading")
         file_path = await msg.download(progress=progress_message, progress_args=("🚀 Downloading media... ⚡", sts, c_time))
         await msg.reply_text(f"✅ Media downloaded successfully: {os.path.basename(file_path)}")
         return file_path
     except Exception as e:
         await sts.edit(f"❌ Error downloading media: {e}")
-        await db.update_task_status(task_id, "Failed")
         raise
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24        
