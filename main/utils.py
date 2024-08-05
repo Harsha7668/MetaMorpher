@@ -92,17 +92,16 @@ async def heroku_restart():
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24
 #for merging downloading media
-async def download_media(msg, sts):
+async def download_media(msg, sts, task_id):
     c_time = time.time()
     try:
-        file_path = await msg.download(
-            progress=progress_message,
-            progress_args=(0, 0, "media_file", sts, c_time, msg.from_user.username, "Downloading Media")  # Match progress_message arguments
-        )
+        await db.update_task_status(task_id, "Downloading")
+        file_path = await msg.download(progress=progress_message, progress_args=("🚀 Downloading media... ⚡", sts, c_time))
         await msg.reply_text(f"✅ Media downloaded successfully: {os.path.basename(file_path)}")
         return file_path
     except Exception as e:
         await sts.edit(f"❌ Error downloading media: {e}")
+        await db.update_task_status(task_id, "Failed")
         raise
 
 #ALL FILES UPLOADED - CREDITS 🌟 - @Sunrises_24        
