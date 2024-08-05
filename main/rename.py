@@ -1577,7 +1577,6 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
                 print(f"Error downloading thumbnail: {e}")
 
         # Uploading the merged file
-        c_time = time.time()
         if filesize > FILE_SIZE_LIMIT:
             file_link = await upload_to_google_drive(output_path, new_name, sts)
             button = [[InlineKeyboardButton("☁️ CloudUrl ☁️", url=f"{file_link}")]]
@@ -1596,7 +1595,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
                 thumb=file_thumb,
                 caption=cap,
                 progress=progress_message,
-                progress_args=("💠 Upload Started... ⚡", sts, c_time, new_name, username, "Merge Video")
+                progress_args=(0, filesize, new_name, username, "Merge Video")  # Pass all required arguments
             )
 
             await msg.reply_text(
@@ -1630,7 +1629,6 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
             del merge_state[user_id]
 
         await sts.delete()
-
 
    
 
