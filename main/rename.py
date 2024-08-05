@@ -1480,7 +1480,6 @@ async def change_index_subtitle(bot, msg):
     await sts.delete()
     await db.update_task_status(task_id, "completed")
 
-
 @Client.on_message(filters.command("merge") & filters.chat(GROUP))
 async def start_merge_command(bot, msg: Message):
     global MERGE_ENABLED
@@ -1535,7 +1534,9 @@ async def handle_media_files(bot, msg: Message):
 async def merge_and_upload(bot, msg: Message, task_id: int):
     user_id = msg.from_user.id
     username = msg.from_user.username or msg.from_user.first_name
-    
+
+    input_file = None  # Initialize the variable
+
     if user_id not in merge_state:
         await db.update_task_status(task_id, "failed")
         return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
@@ -1549,7 +1550,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
     try:
         file_paths = []
         for file_msg in files_to_merge:
-            file_path = await download_media(file_msg, sts, new_name, username, "Downloading")
+            file_path = await download_media(file_msg, sts)  # Corrected function call
             file_paths.append(file_path)
 
         input_file = "input.txt"
@@ -1614,11 +1615,11 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
 
     finally:
         # Clean up temporary files
+        if input_file and os.path.exists(input_file):
+            os.remove(input_file)
         for file_path in file_paths:
             if os.path.exists(file_path):
                 os.remove(file_path)
-        if os.path.exists(input_file):
-            os.remove(input_file)
         if os.path.exists(output_path):
             os.remove(output_path)
         if file_thumb and os.path.exists(file_thumb):
@@ -1630,10 +1631,8 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
 
         await sts.delete()
 
-    
 
-        
-
+   
 
 @Client.on_message(filters.command("leech") & filters.chat(GROUP))
 async def linktofile(bot, msg: Message):
