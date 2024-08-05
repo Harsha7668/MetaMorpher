@@ -1549,7 +1549,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
     try:
         file_paths = []
         for file_msg in files_to_merge:
-            file_path = await download_media(file_msg, sts)
+            file_path = await download_media(file_msg, sts, new_name, username, "Downloading")
             file_paths.append(file_path)
 
         input_file = "input.txt"
@@ -1628,8 +1628,10 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
         if user_id in merge_state:
             del merge_state[user_id]
 
-        await sts.delete()  
+        await sts.delete()
+
     
+
         
 
 
