@@ -1481,10 +1481,7 @@ async def change_index_subtitle(bot, msg):
     await db.update_task_status(task_id, "completed")
 
 
-    
-    
-        
-@Client.on_message(filters.command("merge") & filters.chat(GROUP))
+  @Client.on_message(filters.command("merge") & filters.chat(GROUP))
 async def start_merge_command(bot, msg: Message):
     global MERGE_ENABLED
     if not MERGE_ENABLED:
@@ -1598,7 +1595,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
                 thumb=file_thumb,
                 caption=cap,
                 progress=progress_message,
-                progress_args=("💠 Upload Started... ⚡", sts, c_time)
+                progress_args=(new_name, username, "Merge Video")
             )
 
             await msg.reply_text(
@@ -1631,7 +1628,10 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
         if user_id in merge_state:
             del merge_state[user_id]
 
-        await sts.delete()
+        await sts.delete()  
+    
+        
+
 
 @Client.on_message(filters.command("leech") & filters.chat(GROUP))
 async def linktofile(bot, msg: Message):
