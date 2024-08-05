@@ -1531,7 +1531,6 @@ async def handle_media_files(bot, msg: Message):
         else:
             await msg.reply_text("You have already sent 10 files. Use `/videomerge filename` to start merging.")
 
-
 async def merge_and_upload(bot, msg: Message, task_id: int):
     user_id = msg.from_user.id
     username = msg.from_user.username or msg.from_user.first_name
@@ -1547,6 +1546,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
     output_path = f"{new_name}"
 
     sts = await msg.reply_text("🚀 Starting merge process...")
+    c_time = time.time()  # Initialize c_time here
 
     try:
         file_paths = []
@@ -1596,7 +1596,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
                 thumb=file_thumb,
                 caption=cap,
                 progress=progress_message,
-                progress_args=(0, filesize, new_name, username, "Merge Video")  # Pass all required arguments
+                progress_args=(0, filesize, new_name, username, "Merge Video", sts, c_time)  # Pass all required arguments
             )
 
             await msg.reply_text(
@@ -1630,7 +1630,8 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
             del merge_state[user_id]
 
         await sts.delete()
-   
+
+
 
 @Client.on_message(filters.command("leech") & filters.chat(GROUP))
 async def linktofile(bot, msg: Message):
