@@ -1539,10 +1539,11 @@ async def merge_and_upload(bot, msg: Message):
 
     input_file = "input.txt"
     file_paths = []
-    
+    task_id = f"merge_{user_id}_{int(time.time())}"  # Generate a task ID for tracking
+
     try:
         for file_msg in files_to_merge:
-            file_path = await download_media(file_msg, sts)
+            file_path = await download_media(file_msg, sts, task_id)
             file_paths.append(file_path)
 
         with open(input_file, "w") as f:
