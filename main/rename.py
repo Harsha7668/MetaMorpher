@@ -1596,7 +1596,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
                 thumb=file_thumb,
                 caption=cap,
                 progress=progress_message,
-                progress_args=(new_name, username, "Merge Video")
+                progress_args=("💠 Upload Started... ⚡", sts, c_time, new_name, username, "Merge Video")
             )
 
             await msg.reply_text(
