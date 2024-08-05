@@ -97,7 +97,7 @@ async def download_media(msg, sts):
     try:
         file_path = await msg.download(
             progress=progress_message,
-            progress_args=(0, 0, "media_file", msg.from_user.username, "Downloading Media")  # Adjust arguments as needed
+            progress_args=(0, 0, "media_file", msg.from_user.username, "Downloading Media", sts, c_time)  # Pass all required arguments
         )
         await msg.reply_text(f"✅ Media downloaded successfully: {os.path.basename(file_path)}")
         return file_path
