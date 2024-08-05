@@ -1053,7 +1053,6 @@ async def filemultitask(bot, msg: Message):
     await sts.delete()
     await db.update_task_status(task_id, "Completed")
 
-
 @Client.on_message(filters.command("attachphoto") & filters.chat(GROUP))
 async def attach_photo(bot, msg: Message):
     global PHOTO_ATTACH_ENABLED
@@ -1098,7 +1097,10 @@ async def attach_photo(bot, msg: Message):
     c_time = time.time()
     try:
         await db.update_task_status(task_id, "Downloading")
-        downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
+        downloaded = await reply.download(
+            progress=progress_message, 
+            progress_args=("🚀 Download Started... ⚡️", sts, c_time, new_name, username, "Attach Photo")
+        )
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
         await db.update_task_status(task_id, "Failed")
@@ -1174,7 +1176,7 @@ async def attach_photo(bot, msg: Message):
                 thumb=file_thumb,
                 caption="Here is your file with the photo attached.",
                 progress=progress_message,
-                progress_args=("🔼 Upload Started... ⚡️", sts, c_time)
+                progress_args=("🔼 Upload Started... ⚡️", sts, c_time, new_name, username, "Attach Photo")
             )
 
             # Notify in the group about the upload
@@ -1197,9 +1199,7 @@ async def attach_photo(bot, msg: Message):
         if file_thumb and os.path.exists(file_thumb):
             os.remove(file_thumb)
         if os.path.exists(attachment_path):
-            os.remove(attachment_path)        
-
-
+            os.remove(attachment_path)
 
 
 @Client.on_message(filters.command("changeindexaudio") & filters.chat(GROUP))
