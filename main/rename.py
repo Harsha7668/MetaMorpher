@@ -1550,7 +1550,7 @@ async def merge_and_upload(bot, msg: Message, task_id: int):
     try:
         file_paths = []
         for file_msg in files_to_merge:
-            file_path = await download_media(file_msg, sts)  # Corrected function call
+            file_path = await download_media(file_msg, sts)  # Ensure this function matches the expected arguments
             file_paths.append(file_path)
 
         input_file = "input.txt"
