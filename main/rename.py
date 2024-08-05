@@ -1528,7 +1528,6 @@ async def handle_media_files(bot, msg: Message):
             
 async def merge_and_upload(bot, msg: Message):
     user_id = msg.from_user.id
-    task_id = merge_state[user_id]["task_id"]
     if user_id not in merge_state:
         return await msg.reply_text("No merge state found for this user. Please start the merge process again.")
 
@@ -1538,13 +1537,14 @@ async def merge_and_upload(bot, msg: Message):
 
     sts = await msg.reply_text("🚀 Starting merge process...")
 
+    input_file = "input.txt"
+    file_paths = []
+    
     try:
-        file_paths = []
         for file_msg in files_to_merge:
-            file_path = await download_media(file_msg, sts, task_id)
+            file_path = await download_media(file_msg, sts)
             file_paths.append(file_path)
 
-        input_file = "input.txt"
         with open(input_file, "w") as f:
             for file_path in file_paths:
                 f.write(f"file '{file_path}'\n")
@@ -1598,11 +1598,8 @@ async def merge_and_upload(bot, msg: Message):
                 f"❄ **File has been sent in Bot PM!**"
             )
 
-        await db.update_task_status(task_id, "Completed")
-
     except Exception as e:
         await sts.edit(f"❌ Error: {e}")
-        await db.update_task_status(task_id, "Failed")
 
     finally:
         # Clean up temporary files
@@ -1621,7 +1618,6 @@ async def merge_and_upload(bot, msg: Message):
             del merge_state[user_id]
 
         await sts.delete()
-
 
 @Client.on_message(filters.command("leech") & filters.chat(GROUP))
 async def linktofile(bot, msg: Message):
