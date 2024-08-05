@@ -1053,6 +1053,7 @@ async def filemultitask(bot, msg: Message):
     await sts.delete()
     await db.update_task_status(task_id, "Completed")
 
+
 @Client.on_message(filters.command("attachphoto") & filters.chat(GROUP))
 async def attach_photo(bot, msg: Message):
     global PHOTO_ATTACH_ENABLED
@@ -1069,28 +1070,28 @@ async def attach_photo(bot, msg: Message):
 
     reply = msg.reply_to_message
     if not reply:
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return await msg.reply_text("Please reply to a media file with the attach photo command and specify the output filename\nFormat: `attachphoto -n filename.mkv`")
 
     command_text = " ".join(msg.command[1:]).strip()
     if "-n" not in command_text:
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return await msg.reply_text("Please provide the output filename using the `-n` flag\nFormat: `attachphoto -n filename.mkv`")
 
     filename_part = command_text.split('-n', 1)[1].strip()
     new_name = filename_part if filename_part else None
 
     if not new_name:
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return await msg.reply_text("Please provide a valid filename\nFormat: `attachphoto -n filename.mkv`")
 
     if not new_name.lower().endswith(('.mkv', '.mp4', '.avi')):
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return await msg.reply_text("Invalid file extension. Please use a valid video file extension (e.g., .mkv, .mp4, .avi).")
 
     media = reply.document or reply.audio or reply.video
     if not media:
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return await msg.reply_text("Please reply to a valid media file (audio, video, or document) with the attach photo command.")
 
     sts = await msg.reply_text("🚀 Downloading media... ⚡")
@@ -1100,7 +1101,7 @@ async def attach_photo(bot, msg: Message):
         downloaded = await reply.download(progress=progress_message, progress_args=("🚀 Download Started... ⚡️", sts, c_time))
     except Exception as e:
         await safe_edit_message(sts, f"Error downloading media: {e}")
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return
 
     # Retrieve attachment from the database
@@ -1108,7 +1109,7 @@ async def attach_photo(bot, msg: Message):
     if not attachment_file_path:
         await safe_edit_message(sts, "Please send a photo to be attached using the `setphoto` command.")
         os.remove(downloaded)
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return
 
     # Ensure the attachment exists and download it if necessary
@@ -1116,7 +1117,7 @@ async def attach_photo(bot, msg: Message):
     if not os.path.exists(attachment_path):
         await safe_edit_message(sts, "Attachment not found.")
         os.remove(downloaded)
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return
 
     output_file = new_name
@@ -1128,7 +1129,7 @@ async def attach_photo(bot, msg: Message):
     except Exception as e:
         await safe_edit_message(sts, f"Error adding photo attachment: {e}")
         os.remove(downloaded)
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
         return
 
     # Retrieve thumbnail from the database
@@ -1186,10 +1187,10 @@ async def attach_photo(bot, msg: Message):
             )
 
         await sts.delete()
-        await db.update_task_status(task_id, "completed")
+        await db.update_task_status(task_id, "Completed")
     except Exception as e:
         await safe_edit_message(sts, f"Error uploading modified file: {e}")
-        await db.update_task_status(task_id, "failed")
+        await db.update_task_status(task_id, "Failed")
     finally:
         os.remove(downloaded)
         os.remove(output_file)
@@ -1197,6 +1198,9 @@ async def attach_photo(bot, msg: Message):
             os.remove(file_thumb)
         if os.path.exists(attachment_path):
             os.remove(attachment_path)        
+
+
+
 
 @Client.on_message(filters.command("changeindexaudio") & filters.chat(GROUP))
 async def change_index_audio(bot, msg):
